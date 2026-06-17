@@ -703,6 +703,39 @@ function _showKeyBanner() {
   if (inp) { inp.focus(); inp.style.borderColor = 'var(--red)'; }
 }
 
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', function(e) {
+  const isMac = navigator.platform.toUpperCase().includes('MAC');
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (!mod) return;
+
+  const active = document.querySelector('.nav-item.active')?.dataset.view;
+
+  if (e.key === 'Enter' && active === 'mock') {
+    e.preventDefault(); runMockTests(); return;
+  }
+  if (e.key === 's') {
+    e.preventDefault();
+    if (active === 'mock' || active === 'chat') {
+      document.getElementById('skill-form-name')?.focus();
+      document.querySelector('.nav-item[data-view="mock"]')?.click();
+    }
+    return;
+  }
+  if (e.key === 'k') {
+    e.preventDefault();
+    const id = active === 'req' ? 'req-search' : active === 'tc' ? 'tc-search' : null;
+    if (id) { document.getElementById(id)?.focus(); document.getElementById(id)?.select(); }
+    return;
+  }
+  if (e.key === 'r' && active !== 'chat') {
+    e.preventDefault();
+    if (active === 'req') loadRequirements();
+    else if (active === 'tc') loadTestCases();
+    return;
+  }
+});
+
 // ── Persistence helpers ──
 const STORAGE_KEY = 'qa_copilot_chat_v1';
 const MAX_STORED  = 200; // giới hạn số tin nhắn lưu
@@ -933,6 +966,9 @@ function renderReqList(grouped, filterFeature, search='') {
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
               <span style="font-size:9px;color:var(--muted)">v${esc(r.version)}</span>
               <div style="display:flex;gap:4px">
+                <button onclick="generateTCsFromReq('${esc(r.req_id)}')"
+                  style="font-size:9px;background:#0d1829;border:1px solid var(--blue);border-radius:3px;color:var(--blue);padding:2px 6px;cursor:pointer"
+                  title="AI sinh test cases từ requirement này">🤖 Gen TC</button>
                 <button onclick="showHistory('${esc(r.req_id)}')"
                   style="font-size:9px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--subtle);padding:2px 6px;cursor:pointer">History</button>
                 <button onclick="confirmDeprecate('${esc(r.req_id)}')"
@@ -2195,6 +2231,149 @@ async function deleteCron(cronId) {
 
 loadProviderInfo();
 setInterval(refreshStats, 10000);
+
+// ── Auto-generate Test Cases from Requirement ──────────────────────────────
+let _genTCs = [];
+
+async function generateTCsFromReq(reqId) {
+  const modal = document.getElementById('gen-tc-modal');
+  modal.style.display = 'flex';
+  document.getElementById('gen-tc-req-label').textContent = reqId;
+  document.getElementById('gen-tc-footer').style.display = 'none';
+  document.getElementById('gen-tc-body').innerHTML = `
+    <div style="text-align:center;padding:48px;color:var(--subtle)">
+      <div style="font-size:28px;margin-bottom:12px">🤖</div>
+      <div style="font-size:13px">Đang phân tích <b>${esc(reqId)}</b> và sinh test cases...</div>
+    </div>`;
+
+  try {
+    const res = await fetch('/api/ai/generate-testcases', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ req_id: reqId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Lỗi server');
+    _genTCs = data.testcases || [];
+    renderGenTCs();
+    document.getElementById('gen-tc-footer').style.display = 'flex';
+  } catch(e) {
+    document.getElementById('gen-tc-body').innerHTML =
+      `<div style="color:var(--red);text-align:center;padding:40px;font-size:13px">❌ ${esc(e.message)}</div>`;
+  }
+}
+
+function renderGenTCs() {
+  const typeColors = { functional:'var(--blue)', negative:'var(--red)', edge:'var(--orange)', security:'#e040fb', performance:'var(--green)' };
+  const html = _genTCs.map((tc, i) => `
+    <label for="gen-cb-${i}" style="display:block;padding:10px 12px;border:1px solid var(--border);
+      border-radius:8px;margin-bottom:8px;cursor:pointer;transition:border-color .15s"
+      onmouseover="this.style.borderColor='var(--blue)'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <input type="checkbox" id="gen-cb-${i}" checked style="margin-top:3px;cursor:pointer;accent-color:var(--blue)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:3px">${esc(tc.title)}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:5px">
+            <span style="font-size:9px;padding:1px 7px;border-radius:10px;border:1px solid ${typeColors[tc.type]||'var(--border)'};color:${typeColors[tc.type]||'var(--subtle)'}">${esc(tc.type)}</span>
+            <span style="font-size:9px;color:var(--muted)">${esc(tc.feature||'')}</span>
+          </div>
+          <div style="font-size:11px;color:var(--subtle)">${esc(tc.description)}</div>
+          ${tc.steps?.length ? `<details style="margin-top:6px"><summary style="font-size:10px;color:var(--blue);cursor:pointer">Steps (${tc.steps.length})</summary>
+            <ol style="margin:4px 0 0 16px;padding:0">${tc.steps.map(s=>`<li style="font-size:10px;color:var(--subtle);line-height:1.6">${esc(s)}</li>`).join('')}</ol>
+          </details>` : ''}
+        </div>
+      </div>
+    </label>`).join('');
+  document.getElementById('gen-tc-body').innerHTML = html ||
+    '<div style="color:var(--muted);text-align:center;padding:40px">AI không sinh được test case nào</div>';
+}
+
+function closeGenModal() {
+  document.getElementById('gen-tc-modal').style.display = 'none';
+  _genTCs = [];
+}
+
+function _getSelectedGenTCs() {
+  return _genTCs.filter((_, i) => document.getElementById(`gen-cb-${i}`)?.checked);
+}
+
+function addGenTCsToQueue() {
+  const selected = _getSelectedGenTCs();
+  if (!selected.length) { alert('Chọn ít nhất 1 test case'); return; }
+  selected.forEach((tc, i) => {
+    const feat = (tc.feature || 'gen').toLowerCase().replace(/\s+/g,'-');
+    testQueue.push({
+      tc_id: `GEN_${Date.now()}_${i}`,
+      method: 'GET',
+      path: `/${feat}`,
+      expected_status: 200,
+      max_latency_ms: 2000,
+      description: tc.title,
+    });
+  });
+  renderQueue();
+  closeGenModal();
+  switchView('mock', document.querySelector('.nav-item[data-view="mock"]'));
+}
+
+async function saveGenTCsToLibrary() {
+  const selected = _getSelectedGenTCs();
+  if (!selected.length) { alert('Chọn ít nhất 1 test case'); return; }
+  const btn = document.getElementById('gen-save-btn');
+  btn.disabled = true; btn.textContent = '💾 Đang lưu...';
+  let saved = 0;
+  for (const tc of selected) {
+    const r = await fetch('/api/testcases/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tc_id: `TC_${Date.now()}_${Math.random().toString(36).slice(2,6).toUpperCase()}`,
+        title: tc.title,
+        type: tc.type || 'functional',
+        description: tc.description || '',
+        steps: tc.steps || [],
+        expected: tc.expected || '',
+        feature: tc.feature || 'Generated',
+        depends_on: [],
+      }),
+    });
+    if (r.ok) saved++;
+  }
+  btn.disabled = false; btn.textContent = '💾 Lưu vào TC Library';
+  closeGenModal();
+  alert(`✅ Đã lưu ${saved}/${selected.length} test case vào TC Library`);
+  if (document.querySelector('.nav-item.active')?.dataset.view === 'tc') loadTestCases();
+}
 </script>
+
+<!-- Modal: Auto-generate Test Cases -->
+<div id="gen-tc-modal" onclick="if(event.target===this)closeGenModal()"
+  style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.65);
+         align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
+    width:min(720px,94vw);max-height:82vh;display:flex;flex-direction:column;overflow:hidden;
+    box-shadow:0 8px 40px rgba(0,0,0,.5)">
+    <!-- Header -->
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0">
+      <span style="font-size:13px;font-weight:700;color:var(--text)">🤖 AI Generate Test Cases</span>
+      <span id="gen-tc-req-label" style="font-size:10px;color:var(--blue);background:#0d1829;padding:2px 8px;border-radius:4px;font-family:monospace"></span>
+      <button onclick="closeGenModal()" style="margin-left:auto;background:none;border:none;color:var(--subtle);font-size:20px;line-height:1;cursor:pointer;padding:0 4px">×</button>
+    </div>
+    <!-- Body -->
+    <div id="gen-tc-body" style="flex:1;overflow-y:auto;padding:14px 18px;min-height:120px"></div>
+    <!-- Footer -->
+    <div id="gen-tc-footer" style="display:none;padding:12px 18px;border-top:1px solid var(--border);gap:8px;justify-content:flex-end;flex-shrink:0">
+      <button onclick="addGenTCsToQueue()"
+        style="background:var(--green);border:none;border-radius:6px;color:#000;padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600">
+        ▶ Thêm vào Queue
+      </button>
+      <button id="gen-save-btn" onclick="saveGenTCsToLibrary()"
+        style="background:var(--blue);border:none;border-radius:6px;color:#fff;padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600">
+        💾 Lưu vào TC Library
+      </button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

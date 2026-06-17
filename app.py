@@ -663,6 +663,18 @@ class MockRunRequest(BaseModel):
         return v
 
 
+class GenTCRequest(BaseModel):
+    req_id: Optional[str] = None
+    text: Optional[str] = None
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def cap_text(cls, v):
+        if v and len(v) > 5000:
+            raise ValueError("Text tối đa 5000 ký tự")
+        return v
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -1357,6 +1369,72 @@ async def extract_content(
             raise HTTPException(400, f"Lỗi xử lý ảnh: {e}")
 
     raise HTTPException(400, f"Định dạng '.{ext}' chưa được hỗ trợ. Dùng: txt, pdf, docx, png, jpg, jpeg, webp hoặc url.")
+
+
+# ---------------------------------------------------------------------------
+# AI — Generate test cases from requirement
+# ---------------------------------------------------------------------------
+
+_GEN_TC_SYSTEM = "You are a senior QA engineer. Output ONLY valid JSON — no markdown, no explanation."
+
+_GEN_TC_PROMPT = """Generate 4-6 test cases for the requirement below.
+Return a JSON array where each object has EXACTLY these keys:
+- "title": short, specific test case name (string)
+- "type": one of "functional" | "negative" | "edge" | "security" | "performance"
+- "description": what this test verifies (1-2 sentences)
+- "steps": ordered list of test steps (array of strings)
+- "expected": expected result (string)
+- "feature": feature/module name extracted from the requirement (string)
+
+Requirement:
+{req_text}
+
+Return ONLY the JSON array."""
+
+
+@app.post("/api/ai/generate-testcases")
+async def api_generate_testcases(
+    req: GenTCRequest,
+    _auth=Depends(require_api_key),
+    _rate=Depends(check_rate_limit),
+):
+    """Dùng AI sinh test cases từ requirement text hoặc req_id."""
+    if req.req_id:
+        r = get_requirement(req.req_id)
+        if not r:
+            raise HTTPException(status_code=404, detail=f"Requirement {req.req_id} không tồn tại")
+        req_text = r["description"]
+        acs = r.get("acceptance_criteria") or []
+        if isinstance(acs, str):
+            try:
+                acs = json.loads(acs)
+            except Exception:
+                acs = []
+        if acs:
+            req_text += "\nAcceptance Criteria:\n" + "\n".join(f"- {a}" for a in acs)
+    elif req.text:
+        req_text = req.text.strip()
+    else:
+        raise HTTPException(status_code=400, detail="Cần truyền req_id hoặc text")
+
+    prompt = _GEN_TC_PROMPT.format(req_text=req_text)
+    try:
+        ai_resp = call_ai(
+            messages=[{"role": "user", "content": prompt}],
+            system=_GEN_TC_SYSTEM,
+        )
+        raw = ai_resp.text.strip()
+        # Strip markdown code fences if model wraps JSON
+        raw = re.sub(r"^```[a-z]*\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw.strip())
+        tcs = json.loads(raw)
+        if not isinstance(tcs, list):
+            raise ValueError("Expected JSON array")
+        return {"testcases": tcs, "req_id": req.req_id}
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"AI trả về JSON không hợp lệ: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ---------------------------------------------------------------------------

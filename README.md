@@ -330,6 +330,12 @@ Dữ liệu lưu trong `qa_copilot.db` (SQLite, không cần cài thêm phần m
 | `GET` | `/api/crons/{id}/logs` | Lịch sử chạy (`?limit=20`) | ✅ |
 | `POST` | `/api/crons/{id}/run` | Chạy ngay lập tức (không chờ lịch) | ✅ |
 
+### AI Utilities
+
+| Method | Endpoint | Mô tả | Auth |
+|---|---|---|---|
+| `POST` | `/api/ai/generate-testcases` | AI sinh 4-6 test cases từ `req_id` hoặc `text` tự do | ✅ |
+
 ### Performance History
 
 | Method | Endpoint | Mô tả | Auth |
