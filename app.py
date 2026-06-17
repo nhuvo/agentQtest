@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()  # đọc .env trước khi dùng os.getenv()
 from typing import List, Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Depends, Request, Query
+from fastapi import FastAPI, HTTPException, Depends, Request, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -26,7 +26,7 @@ from mock_api_responses import run_batch, validate_response, TestStatus
 from perf_store import log_request, get_history, get_provider_comparison, get_token_breakdown_analysis
 from testcase_store import (
     save_testcases, get_all_testcases, get_grouped_by_feature as get_tc_grouped,
-    get_testcase_stats, get_tc_history, deprecate_testcase,
+    get_testcase_stats, get_tc_history, deprecate_testcase, save_tc_direct,
 )
 from ai_provider import call_ai, get_provider_info
 from requirement_store import (
@@ -1203,6 +1203,209 @@ async def save_tc_manual(req: SaveTCRequest, _auth=Depends(require_api_key)):
     if result["total_new"] == 0 and result["total_updated"] == 0:
         raise HTTPException(status_code=422, detail="Không tìm thấy test case nào (cần format TC_FEATURE_NNN)")
     return result
+
+
+class SaveTCStructuredRequest(BaseModel):
+    tc_id: str
+    title: str
+    type: str = "functional"
+    description: str = ""
+    steps: List[str] = []
+    expected: str = ""
+    feature: str = "Generated"
+    depends_on: List[str] = []
+
+@app.post("/api/testcases/save-structured")
+async def save_tc_structured(req: SaveTCStructuredRequest, _auth=Depends(require_api_key)):
+    """Lưu một TC với cấu trúc JSON (dùng bởi gen TC từ AI)."""
+    save_tc_direct(req.model_dump(), source_cap="AI_GEN")
+    return {"saved": True, "tc_id": req.tc_id}
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: List[str]
+
+@app.post("/api/requirements/bulk-delete")
+async def bulk_delete_requirements(req: BulkDeleteRequest, _auth=Depends(require_api_key)):
+    deleted = sum(1 for rid in req.ids if deprecate_requirement(rid))
+    return {"deleted": deleted, "total": len(req.ids)}
+
+@app.post("/api/testcases/bulk-delete")
+async def bulk_delete_testcases(req: BulkDeleteRequest, _auth=Depends(require_api_key)):
+    deleted = sum(1 for tid in req.ids if deprecate_testcase(tid))
+    return {"deleted": deleted, "total": len(req.ids)}
+
+
+# ---------------------------------------------------------------------------
+# Export / Import Excel & CSV
+# ---------------------------------------------------------------------------
+
+import io as _io
+import csv as _csv_mod
+from fastapi.responses import StreamingResponse
+
+
+def _make_xlsx(headers: list, rows: list, sheet_name: str) -> bytes:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="1a56db", end_color="1a56db", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center")
+    for row in rows:
+        ws.append([str(v) if v is not None else "" for v in row])
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = min(
+            max(len(str(c.value or "")) for c in col) + 4, 80
+        )
+    buf = _io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@app.get("/api/export/requirements")
+async def export_requirements_file(
+    fmt: str = Query("xlsx", pattern="^(xlsx|csv)$"),
+    _auth=Depends(require_api_key),
+):
+    reqs = get_all_requirements()
+    headers = ["req_id", "feature", "description", "version", "status", "acceptance_criteria", "ambiguities"]
+
+    def _row(r):
+        acs = r.get("acceptance_criteria") or []
+        if isinstance(acs, str):
+            try: acs = json.loads(acs)
+            except: acs = []
+        ambs = r.get("ambiguities") or []
+        if isinstance(ambs, str):
+            try: ambs = json.loads(ambs)
+            except: ambs = []
+        return [
+            r.get("req_id",""), r.get("feature",""), r.get("description",""),
+            r.get("version",""), r.get("status",""),
+            "; ".join(str(a) for a in acs),
+            "; ".join(str(a) for a in ambs),
+        ]
+
+    if fmt == "csv":
+        buf = _io.StringIO()
+        w = _csv_mod.writer(buf)
+        w.writerow(headers)
+        for r in reqs:
+            w.writerow(_row(r))
+        return StreamingResponse(
+            _io.BytesIO(buf.getvalue().encode("utf-8-sig")),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=requirements.csv"},
+        )
+    else:
+        try:
+            data = _make_xlsx(headers, [_row(r) for r in reqs], "Requirements")
+        except ImportError:
+            raise HTTPException(500, "openpyxl chưa cài. Chạy: pip install openpyxl")
+        return StreamingResponse(
+            _io.BytesIO(data),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=requirements.xlsx"},
+        )
+
+
+@app.get("/api/export/testcases")
+async def export_testcases_file(
+    fmt: str = Query("xlsx", pattern="^(xlsx|csv)$"),
+    _auth=Depends(require_api_key),
+):
+    tcs = get_all_testcases()
+    headers = ["tc_id", "title", "feature", "type", "priority", "description", "steps", "expected"]
+
+    def _row(tc):
+        steps = tc.get("steps") or ""
+        return [
+            tc.get("tc_id",""), tc.get("title",""), tc.get("feature",""),
+            tc.get("type",""), tc.get("priority",""),
+            tc.get("preconditions","") or tc.get("description",""),
+            steps, tc.get("expected",""),
+        ]
+
+    if fmt == "csv":
+        buf = _io.StringIO()
+        w = _csv_mod.writer(buf)
+        w.writerow(headers)
+        for tc in tcs:
+            w.writerow(_row(tc))
+        return StreamingResponse(
+            _io.BytesIO(buf.getvalue().encode("utf-8-sig")),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=testcases.csv"},
+        )
+    else:
+        try:
+            data = _make_xlsx(headers, [_row(tc) for tc in tcs], "Test Cases")
+        except ImportError:
+            raise HTTPException(500, "openpyxl chưa cài. Chạy: pip install openpyxl")
+        return StreamingResponse(
+            _io.BytesIO(data),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=testcases.xlsx"},
+        )
+
+
+@app.post("/api/import/testcases")
+async def import_testcases_file(
+    file: UploadFile = File(...),
+    _auth=Depends(require_api_key),
+):
+    """Import test cases từ .xlsx hoặc .csv."""
+    fname = (file.filename or "").lower()
+    content = await file.read()
+    rows = []
+
+    if fname.endswith(".csv"):
+        reader = _csv_mod.DictReader(_io.StringIO(content.decode("utf-8-sig")))
+        rows = [{k.strip().lower(): v for k, v in r.items()} for r in reader]
+    elif fname.endswith((".xlsx", ".xls")):
+        try:
+            import openpyxl
+        except ImportError:
+            raise HTTPException(500, "openpyxl chưa cài. Chạy: pip install openpyxl")
+        wb = openpyxl.load_workbook(_io.BytesIO(content), read_only=True, data_only=True)
+        ws = wb.active
+        all_rows = list(ws.iter_rows(values_only=True))
+        if not all_rows:
+            return {"saved": 0, "skipped": 0, "total": 0}
+        hdrs = [str(c or "").strip().lower().replace(" ", "_") for c in all_rows[0]]
+        rows = [dict(zip(hdrs, r)) for r in all_rows[1:]]
+    else:
+        raise HTTPException(400, "Chỉ hỗ trợ .xlsx và .csv")
+
+    saved, skipped = 0, 0
+    for i, row in enumerate(rows):
+        title = str(row.get("title") or "").strip()
+        if not title:
+            skipped += 1
+            continue
+        steps_raw = str(row.get("steps") or "")
+        steps = [s.strip() for s in re.split(r"[;\n]", steps_raw) if s.strip()]
+        tc_id = str(row.get("tc_id") or f"TC_IMPORT_{i+1:04d}").strip()
+        try:
+            save_tc_direct({
+                "tc_id": tc_id,
+                "title": title,
+                "type": str(row.get("type") or "functional").strip(),
+                "feature": str(row.get("feature") or "Imported").strip(),
+                "steps": steps,
+                "expected": str(row.get("expected") or "").strip(),
+                "description": str(row.get("description") or row.get("preconditions") or "").strip(),
+            }, source_cap="IMPORT")
+            saved += 1
+        except Exception:
+            skipped += 1
+
+    return {"saved": saved, "skipped": skipped, "total": len(rows)}
 
 
 # ---------------------------------------------------------------------------

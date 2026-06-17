@@ -323,5 +323,45 @@ def deprecate_testcase(tc_id: str) -> bool:
     return n > 0
 
 
+def save_tc_direct(tc: Dict, source_cap: str = "IMPORT") -> bool:
+    """Lưu trực tiếp một TC từ dict (dùng cho import Excel / gen AI)."""
+    now = datetime.utcnow().isoformat()
+    steps = tc.get("steps") or []
+    if isinstance(steps, list):
+        steps = "\n".join(str(s) for s in steps)
+    with _conn() as conn:
+        existing = conn.execute(
+            "SELECT version FROM test_cases WHERE tc_id=?", (tc["tc_id"],)
+        ).fetchone()
+        if existing:
+            conn.execute("""
+                INSERT INTO tc_versions (tc_id, version, title, steps, expected, changed_at)
+                VALUES (?,?,?,?,?,?)
+            """, (tc["tc_id"], existing["version"],
+                  tc.get("title",""), steps, tc.get("expected",""), now))
+            conn.execute("""
+                UPDATE test_cases
+                SET title=?, feature=?, type=?, steps=?, expected=?,
+                    version=version+1, updated_at=?, source_cap=?
+                WHERE tc_id=?
+            """, (tc.get("title",""), tc.get("feature","Imported"),
+                  tc.get("type","functional"), steps, tc.get("expected",""),
+                  now, source_cap, tc["tc_id"]))
+        else:
+            conn.execute("""
+                INSERT INTO test_cases
+                (tc_id, title, feature, priority, type, preconditions, steps,
+                 expected, linked_reqs, status, version, created_at, updated_at, source_cap)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                tc["tc_id"], tc.get("title",""), tc.get("feature","Imported"),
+                tc.get("priority","medium"), tc.get("type","functional"),
+                tc.get("preconditions",""), steps,
+                tc.get("expected",""), tc.get("linked_reqs",""),
+                "active", 1, now, now, source_cap,
+            ))
+    return True
+
+
 # Init on import
 init_testcase_store()

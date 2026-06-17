@@ -335,6 +335,17 @@ Dữ liệu lưu trong `qa_copilot.db` (SQLite, không cần cài thêm phần m
 | Method | Endpoint | Mô tả | Auth |
 |---|---|---|---|
 | `POST` | `/api/ai/generate-testcases` | AI sinh 4-6 test cases từ `req_id` hoặc `text` tự do | ✅ |
+| `POST` | `/api/testcases/save-structured` | Lưu 1 TC từ JSON object (tc_id, title, type, steps…) | ✅ |
+| `POST` | `/api/requirements/bulk-delete` | Xóa nhiều requirements theo `ids[]` | ✅ |
+| `POST` | `/api/testcases/bulk-delete` | Xóa nhiều test cases theo `ids[]` | ✅ |
+
+### Export / Import
+
+| Method | Endpoint | Mô tả | Auth |
+|---|---|---|---|
+| `GET` | `/api/export/requirements?fmt=xlsx\|csv` | Xuất tất cả requirements ra file | ✅ |
+| `GET` | `/api/export/testcases?fmt=xlsx\|csv` | Xuất tất cả test cases ra file | ✅ |
+| `POST` | `/api/import/testcases` | Import test cases từ file `.xlsx` hoặc `.csv` | ✅ |
 
 ### Performance History
 

@@ -247,6 +247,8 @@
           <input id="req-search" placeholder="🔍 Tìm requirement..." oninput="filterReqs(this.value)"
             style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;width:200px;" />
           <button onclick="loadRequirements()" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:6px 12px;cursor:pointer;font-size:11px;">↻ Refresh</button>
+          <button onclick="exportFile('requirements','xlsx')" title="Xuất Excel" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--green);padding:6px 10px;cursor:pointer;font-size:11px;">⬇ xlsx</button>
+          <button onclick="exportFile('requirements','csv')" title="Xuất CSV" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:6px 10px;cursor:pointer;font-size:11px;">⬇ csv</button>
           <button onclick="switchView('chat', document.querySelector('.nav-item[data-view=chat]')); fillInput('Đọc requirement: ')"
             style="background:var(--blue);border:none;border-radius:6px;color:#fff;padding:6px 12px;cursor:pointer;font-size:11px;font-weight:600;">+ Thêm mới</button>
         </div>
@@ -308,6 +310,13 @@
           <button onclick="saveGroup()" style="background:#a78bfa;border:none;border-radius:6px;color:#000;padding:8px 14px;cursor:pointer;font-size:11px;font-weight:700;flex-shrink:0;">+ Thêm</button>
         </div>
         <div id="groups-msg" style="font-size:10px;margin-top:6px;color:var(--muted);"></div>
+      </div>
+
+      <!-- Bulk action bar (requirements) -->
+      <div id="req-bulk-bar" style="display:none;padding:8px 20px;background:#0d1829;border-bottom:1px solid var(--blue);flex-shrink:0;align-items:center;gap:10px;">
+        <span id="req-bulk-count" style="font-size:11px;color:var(--blue);font-weight:600;"></span>
+        <button onclick="bulkDeleteReqs()" style="background:var(--red);border:none;border-radius:5px;color:#fff;padding:4px 12px;cursor:pointer;font-size:11px;font-weight:600;">🗑 Xóa đã chọn</button>
+        <button onclick="clearReqSelection()" style="background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--subtle);padding:4px 10px;cursor:pointer;font-size:11px;">✕ Bỏ chọn</button>
       </div>
 
       <!-- Requirements list -->
@@ -508,6 +517,12 @@
           <input id="tc-search" placeholder="🔍 Tìm test case..." oninput="filterTCs(this.value)"
             style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;width:180px;"/>
           <button onclick="loadTestCases()" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:6px 12px;cursor:pointer;font-size:11px;">↻ Refresh</button>
+          <button onclick="exportFile('testcases','xlsx')" title="Xuất Excel" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--green);padding:6px 10px;cursor:pointer;font-size:11px;">⬇ xlsx</button>
+          <button onclick="exportFile('testcases','csv')" title="Xuất CSV" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:6px 10px;cursor:pointer;font-size:11px;">⬇ csv</button>
+          <label style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--orange);padding:6px 10px;cursor:pointer;font-size:11px;" title="Import từ Excel/CSV">
+            ⬆ Import
+            <input type="file" accept=".xlsx,.csv" style="display:none" onchange="importTCFile(this)">
+          </label>
           <button onclick="switchView('chat', document.querySelector('.nav-item[data-view=chat]')); fillInput('Viết test case cho: ')"
             style="background:var(--blue);border:none;border-radius:6px;color:#fff;padding:6px 12px;cursor:pointer;font-size:11px;font-weight:600;">+ Generate</button>
         </div>
@@ -522,6 +537,14 @@
         <div id="tc-feature-filters" style="display:flex;gap:4px;flex-wrap:wrap;flex:1;"></div>
         <div style="font-size:10px;color:var(--muted);margin-left:8px;">Type:</div>
         <div id="tc-type-filters" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+      </div>
+
+      <!-- Bulk action bar (test cases) -->
+      <div id="tc-bulk-bar" style="display:none;padding:8px 20px;background:#0d1829;border-bottom:1px solid var(--blue);flex-shrink:0;align-items:center;gap:10px;">
+        <span id="tc-bulk-count" style="font-size:11px;color:var(--blue);font-weight:600;"></span>
+        <button onclick="bulkAddToQueue()" style="background:var(--green);border:none;border-radius:5px;color:#000;padding:4px 12px;cursor:pointer;font-size:11px;font-weight:600;">▶ Thêm vào Queue</button>
+        <button onclick="bulkDeleteTCs()" style="background:var(--red);border:none;border-radius:5px;color:#fff;padding:4px 12px;cursor:pointer;font-size:11px;font-weight:600;">🗑 Xóa đã chọn</button>
+        <button onclick="clearTCSelection()" style="background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--subtle);padding:4px 10px;cursor:pointer;font-size:11px;">✕ Bỏ chọn</button>
       </div>
 
       <!-- TC list -->
@@ -956,6 +979,9 @@ function renderReqList(grouped, filterFeature, search='') {
         <div style="padding:10px 12px;border-bottom:1px solid var(--border);transition:background .1s"
           onmouseover="this.style.background='#1a1f2e'" onmouseout="this.style.background=''">
           <div style="display:flex;align-items:flex-start;gap:10px;">
+            <input type="checkbox" class="req-cb" data-id="${esc(r.req_id)}"
+              style="margin-top:3px;flex-shrink:0;accent-color:var(--blue);cursor:pointer"
+              onchange="updateReqBulkBar()">
             <span style="font-family:monospace;font-size:10px;color:var(--blue);flex-shrink:0;margin-top:2px;
               background:#0d1829;padding:2px 7px;border-radius:3px">${esc(r.req_id)}</span>
             <div style="flex:1;min-width:0">
@@ -1517,6 +1543,8 @@ function loadChainPreset() {
 
 function clearQueue() { testQueue = []; renderQueue(); }
 
+let _dragSrcIdx = null;
+
 function renderQueue() {
   document.getElementById('queue-count').textContent = testQueue.length;
   const el = document.getElementById('queue-list');
@@ -1532,7 +1560,10 @@ function renderQueue() {
       ? `<span title="Depends on: ${esc(tc.depends_on.join(', '))}" style="font-size:9px;background:#1a1000;color:var(--orange);padding:1px 5px;border-radius:3px;margin-left:4px;">→ ${esc(tc.depends_on[0])}</span>`
       : '';
     return `
-    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+    <div draggable="true" data-qi="${i}"
+      ondragstart="_qDragStart(event,${i})" ondragover="_qDragOver(event)" ondrop="_qDrop(event,${i})" ondragend="_qDragEnd(event)"
+      style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:grab;transition:opacity .15s">
+      <span style="color:var(--muted);font-size:13px;flex-shrink:0;cursor:grab" title="Kéo để sắp xếp">⠿</span>
       <span style="font-family:monospace;color:var(--blue);font-size:10px;width:120px;flex-shrink:0">${esc(tc.tc_id)}</span>
       <span style="background:var(--surface);padding:1px 6px;border-radius:3px;font-size:9px;color:var(--orange);font-family:monospace">${esc(tc.method)}</span>
       <span style="flex:1;font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(tc.path)}</span>
@@ -1542,6 +1573,18 @@ function renderQueue() {
     </div>`;
   }).join('');
 }
+
+function _qDragStart(e, i) { _dragSrcIdx = i; e.currentTarget.style.opacity = '0.4'; e.dataTransfer.effectAllowed = 'move'; }
+function _qDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+function _qDrop(e, targetIdx) {
+  e.preventDefault();
+  if (_dragSrcIdx === null || _dragSrcIdx === targetIdx) return;
+  const moved = testQueue.splice(_dragSrcIdx, 1)[0];
+  testQueue.splice(targetIdx, 0, moved);
+  _dragSrcIdx = null;
+  renderQueue();
+}
+function _qDragEnd(e) { _dragSrcIdx = null; renderQueue(); }
 
 function removeTC(i) { testQueue.splice(i, 1); renderQueue(); }
 
@@ -1763,6 +1806,8 @@ function renderTCList(grouped) {
       const prioColor = TC_PRIO_COLORS[tc.priority] || 'var(--muted)';
       return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <input type="checkbox" class="tc-cb" data-id="${esc(tc.tc_id)}" data-feature="${esc(tc.feature)}"
+            style="flex-shrink:0;accent-color:var(--blue);cursor:pointer" onchange="updateTCBulkBar()">
           <span style="font-family:monospace;font-size:11px;color:var(--blue);flex-shrink:0">${esc(tc.tc_id)}</span>
           <span style="flex:1;font-size:12px;font-weight:500">${esc(tc.title)}</span>
           <span style="font-size:9px;color:${prioColor};font-weight:600;flex-shrink:0">${esc(tc.priority)}</span>
@@ -2229,6 +2274,111 @@ async function deleteCron(cronId) {
   loadCrons();
 }
 
+// ── Export ─────────────────────────────────────────────────────────────────
+function exportFile(type, fmt) {
+  const a = document.createElement('a');
+  a.href = `/api/export/${type}?fmt=${fmt}`;
+  a.download = `${type}.${fmt}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// ── Import test cases from Excel/CSV ───────────────────────────────────────
+async function importTCFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  const form = new FormData();
+  form.append('file', file);
+  const btn = input.closest('label');
+  const orig = btn.textContent.trim();
+  btn.style.opacity = '0.6';
+  try {
+    const res = await fetch('/api/import/testcases', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Lỗi import');
+    alert(`✅ Import thành công: ${data.saved} TCs đã lưu${data.skipped ? `, bỏ qua ${data.skipped}` : ''}`);
+    loadTestCases();
+  } catch(e) {
+    alert(`❌ Import lỗi: ${e.message}`);
+  } finally {
+    btn.style.opacity = '1';
+  }
+}
+
+// ── Bulk actions — Requirements ────────────────────────────────────────────
+function updateReqBulkBar() {
+  const checked = [...document.querySelectorAll('.req-cb:checked')];
+  const bar = document.getElementById('req-bulk-bar');
+  bar.style.display = checked.length ? 'flex' : 'none';
+  document.getElementById('req-bulk-count').textContent = `${checked.length} đã chọn`;
+}
+
+function clearReqSelection() {
+  document.querySelectorAll('.req-cb').forEach(cb => cb.checked = false);
+  document.getElementById('req-bulk-bar').style.display = 'none';
+}
+
+async function bulkDeleteReqs() {
+  const ids = [...document.querySelectorAll('.req-cb:checked')].map(cb => cb.dataset.id);
+  if (!ids.length) return;
+  if (!confirm(`Xóa ${ids.length} requirements? Hành động này không thể hoàn tác.`)) return;
+  const res = await fetch('/api/requirements/bulk-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  const data = await res.json();
+  alert(`Đã xóa ${data.deleted}/${ids.length} requirements`);
+  loadRequirements();
+}
+
+// ── Bulk actions — Test Cases ──────────────────────────────────────────────
+function updateTCBulkBar() {
+  const checked = [...document.querySelectorAll('.tc-cb:checked')];
+  const bar = document.getElementById('tc-bulk-bar');
+  bar.style.display = checked.length ? 'flex' : 'none';
+  document.getElementById('tc-bulk-count').textContent = `${checked.length} đã chọn`;
+}
+
+function clearTCSelection() {
+  document.querySelectorAll('.tc-cb').forEach(cb => cb.checked = false);
+  document.getElementById('tc-bulk-bar').style.display = 'none';
+}
+
+async function bulkDeleteTCs() {
+  const ids = [...document.querySelectorAll('.tc-cb:checked')].map(cb => cb.dataset.id);
+  if (!ids.length) return;
+  if (!confirm(`Xóa ${ids.length} test cases?`)) return;
+  const res = await fetch('/api/testcases/bulk-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  const data = await res.json();
+  alert(`Đã xóa ${data.deleted}/${ids.length} test cases`);
+  loadTestCases();
+}
+
+function bulkAddToQueue() {
+  const checked = [...document.querySelectorAll('.tc-cb:checked')];
+  if (!checked.length) return;
+  checked.forEach((cb, i) => {
+    const feat = (cb.dataset.feature || 'tc').toLowerCase().replace(/\s+/g, '-');
+    testQueue.push({
+      tc_id: cb.dataset.id,
+      method: 'GET',
+      path: `/${feat}`,
+      expected_status: 200,
+      max_latency_ms: 2000,
+    });
+  });
+  renderQueue();
+  clearTCSelection();
+  switchView('mock', document.querySelector('.nav-item[data-view="mock"]'));
+}
+
 loadProviderInfo();
 setInterval(refreshStats, 10000);
 
@@ -2323,15 +2473,15 @@ async function saveGenTCsToLibrary() {
   btn.disabled = true; btn.textContent = '💾 Đang lưu...';
   let saved = 0;
   for (const tc of selected) {
-    const r = await fetch('/api/testcases/save', {
+    const r = await fetch('/api/testcases/save-structured', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         tc_id: `TC_${Date.now()}_${Math.random().toString(36).slice(2,6).toUpperCase()}`,
-        title: tc.title,
+        title: tc.title || '',
         type: tc.type || 'functional',
         description: tc.description || '',
-        steps: tc.steps || [],
+        steps: Array.isArray(tc.steps) ? tc.steps : [],
         expected: tc.expected || '',
         feature: tc.feature || 'Generated',
         depends_on: [],
