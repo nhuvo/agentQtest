@@ -1,0 +1,2200 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>QA Copilot</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:       #0d0f14;
+    --surface:  #151820;
+    --card:     #1c2030;
+    --border:   #2a2f45;
+    --muted:    #4a5578;
+    --subtle:   #8892b0;
+    --text:     #e8eaf2;
+    --blue:     #4f8ef7;
+    --purple:   #7c5cfc;
+    --green:    #22d67a;
+    --orange:   #f5a623;
+    --red:      #f25555;
+  }
+  html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+
+  /* ── Layout ── */
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* Top bar */
+  #topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .logo { font-family: monospace; font-size: 13px; font-weight: 700; color: var(--blue); letter-spacing: .05em; }
+  .badge { font-size: 10px; background: var(--purple); color: #fff; padding: 2px 8px; border-radius: 20px; font-weight: 700; margin-left: 8px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+  .status-label { font-size: 11px; color: var(--subtle); margin-left: 6px; }
+
+  /* Body */
+  #body { display: flex; flex: 1; overflow: hidden; }
+
+  /* Left sidebar */
+  #sidebar { width: 210px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0; padding: 14px 12px; gap: 16px; }
+  .section-label { font-size: 9px; font-weight: 700; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; padding: 0 4px; margin-bottom: 4px; }
+  .nav-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--subtle); transition: all .15s; margin-bottom: 1px; }
+  .nav-item:hover, .nav-item.active { background: #242840; color: var(--blue); }
+  .nav-item .icon { font-size: 14px; width: 16px; text-align: center; flex-shrink: 0; }
+  .nav-item .count { margin-left: auto; background: #242840; color: var(--subtle); font-size: 9px; padding: 1px 6px; border-radius: 10px; font-family: monospace; }
+  .nav-item.active .count { background: var(--blue); color: #fff; }
+
+  /* Center chat */
+  #chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #chat-header { padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+  #chat-header .title { font-size: 13px; font-weight: 600; }
+  #chat-header .subtitle { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  #messages { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+
+  /* Empty state */
+  #empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--muted); text-align: center; }
+  #empty-state .robot { font-size: 40px; opacity: .4; }
+  #empty-state h3 { font-size: 14px; color: var(--subtle); font-weight: 600; }
+  #empty-state p { font-size: 12px; line-height: 1.6; max-width: 300px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 8px; }
+  .chip { font-size: 11px; padding: 6px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 20px; cursor: pointer; color: var(--subtle); transition: all .15s; }
+  .chip:hover { border-color: var(--blue); color: var(--blue); }
+
+  /* Message bubbles */
+  .msg { display: flex; flex-direction: column; gap: 4px; }
+  .msg.user { align-items: flex-end; }
+  .msg.agent { align-items: flex-start; }
+  .cap-tag { font-size: 9px; font-family: monospace; background: #242840; padding: 2px 8px; border-radius: 3px; opacity: .85; }
+  .bubble { max-width: 76%; padding: 10px 14px; border-radius: 12px; font-size: 12.5px; line-height: 1.65; word-break: break-word; }
+  .msg.user .bubble { background: var(--blue); color: #fff; border-bottom-right-radius: 3px; white-space: pre-wrap; }
+  .msg.agent .bubble { background: var(--card); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+  /* Markdown styles inside agent bubble */
+  .msg.agent .bubble h1,.msg.agent .bubble h2,.msg.agent .bubble h3,.msg.agent .bubble h4 { margin: 10px 0 4px; font-weight: 700; color: var(--text); }
+  .msg.agent .bubble h3 { font-size: 13px; }
+  .msg.agent .bubble h4 { font-size: 12px; color: var(--subtle); }
+  .msg.agent .bubble p { margin: 4px 0; }
+  .msg.agent .bubble ul,.msg.agent .bubble ol { margin: 4px 0 4px 18px; }
+  .msg.agent .bubble li { margin: 2px 0; }
+  .msg.agent .bubble strong { color: #e2e8f0; font-weight: 700; }
+  .msg.agent .bubble em { color: var(--subtle); }
+  .msg.agent .bubble code { background: #0d0f14; border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-family: monospace; font-size: 11px; color: var(--green); }
+  .msg.agent .bubble pre { background: #0d0f14; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin: 6px 0; overflow-x: auto; }
+  .msg.agent .bubble pre code { background: none; border: none; padding: 0; color: #cdd6f4; }
+  .msg.agent .bubble table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 11.5px; }
+  .msg.agent .bubble th { background: #242840; color: var(--subtle); font-weight: 600; padding: 5px 8px; border: 1px solid var(--border); text-align: left; }
+  .msg.agent .bubble td { padding: 5px 8px; border: 1px solid var(--border); vertical-align: top; }
+  .msg.agent .bubble tr:nth-child(even) td { background: #161a28; }
+  .msg.agent .bubble hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+  .msg.agent .bubble blockquote { border-left: 3px solid var(--blue); padding-left: 10px; color: var(--subtle); margin: 6px 0; }
+  .msg-meta { display: flex; gap: 6px; font-size: 9px; color: var(--muted); font-family: monospace; align-items: center; }
+  .meta-tag { background: var(--card); padding: 1px 6px; border-radius: 4px; }
+  .meta-fast { color: var(--green); }
+  .meta-mid  { color: var(--orange); }
+  .meta-slow { color: var(--red); }
+
+  /* Typing indicator */
+  #typing { display: none; }
+  #typing .bubble { display: flex; gap: 4px; align-items: center; }
+  .dot { width: 6px; height: 6px; background: var(--muted); border-radius: 50%; animation: bounce 1.2s infinite; }
+  .dot:nth-child(2) { animation-delay: .2s; }
+  .dot:nth-child(3) { animation-delay: .4s; }
+
+  /* Input bar */
+  #inputbar { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-end; background: var(--surface); flex-shrink: 0; }
+  #input { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-family: inherit; font-size: 12.5px; padding: 10px 14px; resize: none; outline: none; min-height: 42px; max-height: 120px; transition: border-color .15s; }
+  #input:focus { border-color: var(--blue); }
+  #send-btn { background: var(--blue); border: none; border-radius: 8px; color: #fff; padding: 10px 16px; cursor: pointer; font-size: 13px; font-weight: 600; height: 42px; white-space: nowrap; transition: all .15s; flex-shrink: 0; }
+  #send-btn:disabled { background: var(--border); cursor: not-allowed; }
+
+  /* Right panel */
+  #perf-panel { width: 280px; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0; }
+  .panel-header { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+  .panel-title { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--subtle); text-transform: uppercase; letter-spacing: .08em; }
+  .live-badge { font-size: 8px; background: var(--green); color: #000; padding: 1px 5px; border-radius: 3px; font-weight: 700; }
+  .panel-section { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .panel-section:last-child { border-bottom: none; }
+  .panel-section-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 10px; }
+
+  /* Metric cards */
+  .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .metric-value { font-family: monospace; font-size: 18px; font-weight: 700; line-height: 1; }
+  .metric-label { font-size: 9px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .05em; }
+
+  /* Spark bars */
+  .sparkbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .sparkbar-label { font-size: 10px; color: var(--subtle); width: 60px; flex-shrink: 0; }
+  .sparkbar-track { flex: 1; background: var(--card); border-radius: 3px; height: 5px; overflow: hidden; }
+  .sparkbar-fill { height: 100%; border-radius: 3px; transition: width .5s; }
+  .sparkbar-value { font-family: monospace; font-size: 10px; color: var(--subtle); width: 50px; text-align: right; }
+
+  /* Token bar */
+  .token-bar-track { background: var(--card); border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 10px; }
+  .token-bar-fill { height: 100%; background: linear-gradient(90deg, var(--blue), var(--purple)); border-radius: 4px; transition: width .5s; }
+  .token-info { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 10px; color: var(--subtle); }
+
+  /* Cost bars */
+  .cost-bars { display: flex; gap: 3px; align-items: flex-end; height: 44px; }
+  .cost-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .cost-bar-fill { width: 100%; border-radius: 2px 2px 0 0; min-height: 2px; }
+  .cost-bar-label { font-size: 8px; color: var(--muted); font-family: monospace; }
+  .no-data { font-size: 10px; color: var(--muted); align-self: center; }
+
+  /* Run items */
+  .run-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 10px; }
+  .run-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .run-cap { flex: 1; font-family: monospace; font-size: 9px; }
+  .run-dur { color: var(--muted); font-family: monospace; font-size: 9px; }
+  .run-status { font-size: 9px; font-weight: 700; }
+
+  /* Mock test panel */
+  #mock-panel { display: none; flex-direction: column; height: 100%; }
+  #mock-panel.active { display: flex; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Animations */
+  @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:.4} }
+  @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <div style="display:flex;align-items:center">
+      <span class="logo">QA//COPILOT</span>
+      <span class="badge">v2.0</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <input id="api-key-input" type="password" placeholder="🔑 API Key..."
+        title="Nhập APP_API_KEY của server. Lưu tự động vào localStorage."
+        style="background:var(--card);border:1px solid var(--border);border-radius:6px;
+               color:var(--text);padding:4px 9px;font-size:11px;outline:none;width:140px;opacity:0.65;transition:all .2s;"
+        onfocus="this.style.opacity='1'"
+        onblur="this.style.opacity=this.value?'1':'0.65'"
+        oninput="setApiKey(this.value)" />
+      <div style="display:flex;align-items:center;">
+        <div class="status-dot"></div>
+        <span class="status-label" id="model-label">claude-sonnet-4-6 · Ready</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="body">
+
+    <!-- LEFT SIDEBAR -->
+    <div id="sidebar">
+      <div>
+        <div class="section-label">Workflow</div>
+        <div class="nav-item active" data-view="chat" onclick="switchView('chat', this)">
+          <span class="icon">💬</span> Chat Agent
+        </div>
+        <div class="nav-item" data-view="mock" onclick="switchView('mock', this)">
+          <span class="icon">▶️</span> Mock API Test
+        </div>
+        <div class="nav-item" data-view="req" onclick="switchView('req', this)">
+          <span class="icon">📄</span> Requirements
+          <span class="count" id="cnt-req">0</span>
+        </div>
+        <div class="nav-item" data-view="history" onclick="switchView('history', this)">
+          <span class="icon">📊</span> Perf History
+        </div>
+        <div class="nav-item" data-view="tc" onclick="switchView('tc', this)">
+          <span class="icon">📋</span> Test Cases
+          <span class="count" id="cnt-tc">0</span>
+        </div>
+        <div class="nav-item" onclick="">
+          <span class="icon">🐛</span> Bug Reports
+          <span class="count" id="cnt-bug">0</span>
+        </div>
+        <div class="nav-item" data-view="skills" onclick="switchView('skills', this)">
+          <span class="icon">🧰</span> Skill Library
+          <span class="count" id="cnt-skills">0</span>
+        </div>
+        <div class="nav-item" data-view="cron" onclick="switchView('cron', this)">
+          <span class="icon">⏰</span> Cron Jobs
+          <span class="count" id="cnt-crons">0</span>
+        </div>
+      </div>
+      <div>
+        <div class="section-label">Capabilities</div>
+        <div class="nav-item" onclick="quickAction('CAP-1')"><span class="icon">📥</span> Read Requirement</div>
+        <div class="nav-item" onclick="quickAction('CAP-2')"><span class="icon">⚠️</span> Risk Analysis</div>
+        <div class="nav-item" onclick="quickAction('CAP-3')"><span class="icon">🗺️</span> Test Plan</div>
+        <div class="nav-item" onclick="quickAction('CAP-4')"><span class="icon">✍️</span> Write Test Cases</div>
+        <div class="nav-item" onclick="quickAction('CAP-5')"><span class="icon">▶️</span> Run API Tests</div>
+        <div class="nav-item" onclick="quickAction('CAP-6')"><span class="icon">🔄</span> Req Synthesis</div>
+        <div class="nav-item" onclick="quickAction('CAP-7')"><span class="icon">🐞</span> Bug Report</div>
+        <div class="nav-item" onclick="quickAction('CAP-8')"><span class="icon">📊</span> Coverage Matrix</div>
+        <div class="nav-item" onclick="quickAction('CAP-9')"><span class="icon">📤</span> Export</div>
+      </div>
+    </div>
+
+    <!-- CENTER: REQUIREMENTS VIEW -->
+    <div id="req-view" style="flex:1;display:none;flex-direction:column;overflow:hidden;">
+      <div id="chat-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;flex-shrink:0;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);">
+        <div>
+          <div class="title">📄 Requirements</div>
+          <div class="subtitle">Lưu trữ persistent · Gom nhóm theo feature · Version history</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="req-search" placeholder="🔍 Tìm requirement..." oninput="filterReqs(this.value)"
+            style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;width:200px;" />
+          <button onclick="loadRequirements()" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:6px 12px;cursor:pointer;font-size:11px;">↻ Refresh</button>
+          <button onclick="switchView('chat', document.querySelector('.nav-item[data-view=chat]')); fillInput('Đọc requirement: ')"
+            style="background:var(--blue);border:none;border-radius:6px;color:#fff;padding:6px 12px;cursor:pointer;font-size:11px;font-weight:600;">+ Thêm mới</button>
+        </div>
+      </div>
+
+      <!-- Stats bar -->
+      <div id="req-stats-bar" style="display:flex;gap:8px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;"></div>
+
+      <!-- Diff tool -->
+      <div id="req-diff-panel" style="display:none;padding:12px 20px;background:#1a1f2e;border-bottom:1px solid var(--border);flex-shrink:0;">
+        <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:var(--orange)">⚡ Diff — So sánh với requirements hiện tại</div>
+        <div style="display:flex;gap:8px;">
+          <textarea id="diff-input" placeholder="Paste requirement mới vào đây để so sánh..." rows="3"
+            style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:11px;resize:none;outline:none;"></textarea>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <button onclick="runDiff()" style="background:var(--orange);border:none;border-radius:6px;color:#000;padding:8px 14px;cursor:pointer;font-size:11px;font-weight:700;">Run Diff</button>
+            <button onclick="document.getElementById('req-diff-panel').style.display='none'"
+              style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:8px 14px;cursor:pointer;font-size:11px;">✕</button>
+          </div>
+        </div>
+        <div id="diff-result" style="margin-top:8px;font-size:11px;"></div>
+      </div>
+
+      <!-- Toolbar -->
+      <div style="display:flex;gap:8px;padding:8px 20px;background:var(--bg);border-bottom:1px solid var(--border);flex-shrink:0;align-items:center;">
+        <div style="font-size:10px;color:var(--muted)">Filter:</div>
+        <div id="feature-filters" style="display:flex;gap:4px;flex-wrap:wrap;flex:1;"></div>
+        <button onclick="toggleGroupsPanel()"
+          style="background:var(--card);border:1px solid #a78bfa;border-radius:6px;color:#a78bfa;padding:5px 10px;cursor:pointer;font-size:10px;flex-shrink:0;">🗂 Groups</button>
+        <button onclick="document.getElementById('req-diff-panel').style.display='flex'"
+          style="background:var(--card);border:1px solid var(--orange);border-radius:6px;color:var(--orange);padding:5px 10px;cursor:pointer;font-size:10px;flex-shrink:0;">⚡ Diff</button>
+      </div>
+
+      <!-- Feature Groups management panel -->
+      <div id="req-groups-panel" style="display:none;padding:14px 20px;background:#1a1a2e;border-bottom:1px solid var(--border);flex-shrink:0;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div style="font-size:11px;font-weight:600;color:#a78bfa;">🗂 Quản lý Feature Groups</div>
+          <div style="display:flex;gap:6px;">
+            <button onclick="reclassifyAll()" style="background:#a78bfa;border:none;border-radius:6px;color:#000;padding:5px 10px;cursor:pointer;font-size:10px;font-weight:700;">↺ Reclassify All</button>
+            <button onclick="toggleGroupsPanel()" style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);padding:5px 10px;cursor:pointer;font-size:10px;">✕</button>
+          </div>
+        </div>
+        <!-- Existing groups list -->
+        <div id="groups-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;min-height:28px;"></div>
+        <!-- Add group form -->
+        <div style="display:flex;gap:6px;align-items:flex-start;">
+          <div style="flex:1;display:flex;flex-direction:column;gap:5px;">
+            <div style="display:flex;gap:6px;">
+              <input id="grp-name" placeholder="Tên group (VD: Login Flow)" maxlength="40"
+                style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;" />
+              <input id="grp-color" type="color" value="#a78bfa" title="Màu group"
+                style="width:32px;height:32px;border:none;border-radius:6px;cursor:pointer;background:transparent;padding:2px;" />
+            </div>
+            <input id="grp-desc" placeholder="Mô tả ngắn (VD: Các chức năng liên quan đến đăng nhập, xác thực)"
+              style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;" />
+            <input id="grp-keywords" placeholder="Keywords phân loại, cách nhau bằng dấu phẩy (VD: login, đăng nhập, otp, xác thực)"
+              style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;" />
+          </div>
+          <button onclick="saveGroup()" style="background:#a78bfa;border:none;border-radius:6px;color:#000;padding:8px 14px;cursor:pointer;font-size:11px;font-weight:700;flex-shrink:0;">+ Thêm</button>
+        </div>
+        <div id="groups-msg" style="font-size:10px;margin-top:6px;color:var(--muted);"></div>
+      </div>
+
+      <!-- Requirements list -->
+      <div id="req-list" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px;">
+        <div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">
+          Chưa có requirements — dùng tab Chat → paste requirement để bắt đầu
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: CHAT VIEW -->
+    <div id="chat-view" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+      <div id="chat-header" style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div class="title">QA Agent</div>
+          <div class="subtitle">Powered by Anthropic · PerformanceMonitor active</div>
+        </div>
+        <button onclick="if(confirm('Xoá toàn bộ lịch sử chat?')) clearChat()"
+          style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);padding:4px 10px;cursor:pointer;font-size:10px;flex-shrink:0;"
+          title="Xoá lịch sử chat">🗑 Clear</button>
+      </div>
+
+      <div id="messages">
+        <div id="empty-state">
+          <div class="robot">🤖</div>
+          <h3>QA Copilot sẵn sàng</h3>
+          <p>Dán requirement, yêu cầu viết test case, chạy API test — thời gian & chi phí được đo real-time.</p>
+          <div class="chips">
+            <div class="chip" onclick="fillInput('Đọc requirement: User có thể đăng nhập bằng email và password. Cần validate email format và mật khẩu tối thiểu 8 ký tự.')">📄 Paste requirement</div>
+            <div class="chip" onclick="fillInput('Phân tích risk cho requirement hiện tại')">⚠️ Risk analysis</div>
+            <div class="chip" onclick="fillInput('Viết test plan cho requirement vừa đọc')">🗺️ Test plan</div>
+            <div class="chip" onclick="fillInput('Viết test case cho chức năng đăng nhập')">📋 Test cases</div>
+            <div class="chip" onclick="fillInput('Tạo bug report cho lỗi vừa phát hiện')">🐛 Bug report</div>
+            <div class="chip" onclick="fillInput('Hiện coverage matrix cho các requirement hiện tại')">📊 Coverage</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Typing -->
+      <div id="typing" class="msg agent" style="padding:0 20px 8px">
+        <div class="bubble"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      </div>
+
+      <!-- Upload bar (ẩn mặc định) -->
+      <div id="upload-bar" style="display:none;padding:8px 20px 0;border-top:1px solid var(--border);background:var(--surface);gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0;">
+        <span style="font-size:11px;color:var(--muted)">📎 Đính kèm:</span>
+        <!-- File upload -->
+        <label style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;color:var(--subtle);">
+          📄 File (txt/pdf/docx/img)
+          <input type="file" id="file-input" accept=".txt,.pdf,.docx,.png,.jpg,.jpeg,.webp" style="display:none" onchange="handleFileUpload(this)">
+        </label>
+        <!-- URL input -->
+        <div style="display:flex;gap:4px;flex:1;min-width:200px;">
+          <input id="url-input" placeholder="🔗 Paste URL..." style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 8px;font-size:11px;outline:none;" onkeydown="if(event.key==='Enter')fetchUrl()"/>
+          <button onclick="fetchUrl()" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:4px 10px;cursor:pointer;font-size:11px;">Fetch</button>
+        </div>
+        <button onclick="toggleUpload()" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 4px;">✕</button>
+      </div>
+      <!-- Upload status -->
+      <div id="upload-status" style="display:none;padding:4px 20px;background:var(--surface);font-size:11px;color:var(--subtle);flex-shrink:0;"></div>
+
+      <div id="inputbar">
+        <button onclick="toggleUpload()" title="Đính kèm file/URL/ảnh"
+          style="background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--subtle);padding:0 10px;cursor:pointer;font-size:16px;height:42px;flex-shrink:0;">📎</button>
+        <textarea id="input" placeholder="Nhập requirement, yêu cầu test plan, test case... (Enter gửi, Shift+Enter xuống dòng)" rows="1"
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button id="send-btn" onclick="sendMessage()" disabled>Gửi ▶</button>
+      </div>
+    </div>
+
+    <!-- CENTER: MOCK API TEST VIEW -->
+    <div id="mock-view" style="flex:1;display:none;flex-direction:column;overflow:hidden;">
+      <div id="chat-header">
+        <div class="title">Mock API Test Runner</div>
+        <div class="subtitle">Chạy test cases mà không cần endpoint thật · CAP-5</div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px;">
+
+        <!-- Add test case form -->
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
+          <div style="font-size:12px;font-weight:600;margin-bottom:12px;color:var(--text)">➕ Thêm Test Case</div>
+          <div style="display:grid;grid-template-columns:120px 1fr 100px;gap:8px;margin-bottom:8px;">
+            <input id="tc-id"     placeholder="TC_LOGIN_001" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:12px;outline:none;" />
+            <input id="tc-path"   placeholder="/auth/login"  style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:12px;outline:none;" />
+            <select id="tc-method" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:12px;outline:none;">
+              <option>GET</option><option selected>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option>
+            </select>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <input id="tc-status"  placeholder="Expected status: 200" type="number" value="200" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:12px;outline:none;" />
+            <input id="tc-latency" placeholder="Max latency (ms): 2000" type="number" value="2000" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:12px;outline:none;" />
+          </div>
+          <input id="tc-fields" placeholder='Expected fields JSON: {"token": "...", "expires_in": 3600}' style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:12px;outline:none;margin-bottom:8px;" />
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <input id="tc-extract" placeholder='Extract: token=token, uid=user.id' title="Cú pháp: varName=dot.path — ví dụ: token=token, uid=user.id" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:12px;outline:none;" />
+            <input id="tc-depends" placeholder='Depends on: TC_AUTH_001 (skip nếu fail)' title="TC_ID sẽ bị BLOCKED nếu TC này fail" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:12px;outline:none;" />
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px;">
+            💡 Dùng <code style="background:var(--surface);padding:1px 4px;border-radius:3px">{{TC_AUTH_001.token}}</code> trong path/fields để chain response của TC trước
+          </div>
+          <button onclick="addTestCase()" style="background:var(--blue);border:none;border-radius:6px;color:#fff;padding:8px 16px;cursor:pointer;font-size:12px;font-weight:600;">+ Thêm vào queue</button>
+          <button onclick="loadPreset()" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:8px 16px;cursor:pointer;font-size:12px;margin-left:6px;">📋 Load preset</button>
+          <button onclick="loadChainPreset()" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:#a78bfa;padding:8px 16px;cursor:pointer;font-size:12px;margin-left:6px;">🔗 Load chain example</button>
+        </div>
+
+        <!-- Queue -->
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div style="font-size:12px;font-weight:600;">📋 Test Queue (<span id="queue-count">0</span>)</div>
+            <div style="display:flex;gap:6px;">
+              <button onclick="clearQueue()" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:5px 10px;cursor:pointer;font-size:11px;">Clear</button>
+              <button onclick="runMockTests()" id="run-btn" style="background:var(--green);border:none;border-radius:6px;color:#000;padding:5px 14px;cursor:pointer;font-size:12px;font-weight:700;">▶ Run All</button>
+            </div>
+          </div>
+          <div id="queue-list" style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--subtle);">
+            <div style="color:var(--muted);font-size:11px;">Queue trống — thêm test cases hoặc load preset</div>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div id="mock-results" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
+          <div style="font-size:12px;font-weight:600;margin-bottom:12px;">📊 Kết quả</div>
+          <div id="results-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;"></div>
+          <div id="results-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT PERF PANEL -->
+    <div id="perf-panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          ⚡ Performance Monitor
+          <span class="live-badge">LIVE</span>
+        </div>
+      </div>
+
+      <!-- Overview -->
+      <div class="panel-section">
+        <div class="panel-section-label">Session Overview</div>
+        <div class="metrics-grid">
+          <div class="metric-card"><div class="metric-value" id="m-runs" style="color:var(--blue)">0</div><div class="metric-label">Total Runs</div></div>
+          <div class="metric-card"><div class="metric-value" id="m-rate" style="color:var(--green)">—</div><div class="metric-label">Success Rate</div></div>
+          <div class="metric-card"><div class="metric-value" id="m-avg" style="color:var(--orange)">—</div><div class="metric-label">Avg Latency</div></div>
+          <div class="metric-card"><div class="metric-value" id="m-cost" style="color:var(--green)">$0.0000</div><div class="metric-label">Total Cost</div></div>
+        </div>
+      </div>
+
+      <!-- Token usage -->
+      <div class="panel-section">
+        <div class="panel-section-label">Token Usage</div>
+        <div class="token-info">
+          <span>Session tokens</span>
+          <span id="tok-total" style="font-family:monospace">0 / ~50k</span>
+        </div>
+        <div class="token-bar-track"><div class="token-bar-fill" id="tok-bar" style="width:0%"></div></div>
+        <div class="sparkbar">
+          <div class="sparkbar-label">Input</div>
+          <div class="sparkbar-track"><div class="sparkbar-fill" id="tok-input-bar" style="background:var(--blue);width:0%"></div></div>
+          <div class="sparkbar-value" id="tok-input">0</div>
+        </div>
+        <div class="sparkbar">
+          <div class="sparkbar-label">Output</div>
+          <div class="sparkbar-track"><div class="sparkbar-fill" id="tok-output-bar" style="background:var(--purple);width:0%"></div></div>
+          <div class="sparkbar-value" id="tok-output">0</div>
+        </div>
+      </div>
+
+      <!-- Cost bars -->
+      <div class="panel-section">
+        <div class="panel-section-label">Cost per Run ($)</div>
+        <div class="cost-bars" id="cost-bars">
+          <span class="no-data">Chưa có dữ liệu</span>
+        </div>
+      </div>
+
+      <!-- Recent runs -->
+      <div class="panel-section">
+        <div class="panel-section-label">Recent Interactions</div>
+        <div id="recent-runs"><div style="font-size:10px;color:var(--muted)">Chưa có interaction nào</div></div>
+      </div>
+
+      <!-- Latency breakdown -->
+      <div class="panel-section">
+        <div class="panel-section-label">Latency Breakdown</div>
+        <div id="latency-breakdown"><div style="font-size:10px;color:var(--muted)">—</div></div>
+      </div>
+    </div>
+
+    <!-- CENTER: TEST CASES VIEW -->
+    <div id="tc-view" style="flex:1;display:none;flex-direction:column;overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px;">
+        <div>
+          <div class="title">🧪 Test Cases</div>
+          <div class="subtitle">Auto-save từ CAP-4 · Grouped by feature · Version history</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="tc-search" placeholder="🔍 Tìm test case..." oninput="filterTCs(this.value)"
+            style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;width:180px;"/>
+          <button onclick="loadTestCases()" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:6px 12px;cursor:pointer;font-size:11px;">↻ Refresh</button>
+          <button onclick="switchView('chat', document.querySelector('.nav-item[data-view=chat]')); fillInput('Viết test case cho: ')"
+            style="background:var(--blue);border:none;border-radius:6px;color:#fff;padding:6px 12px;cursor:pointer;font-size:11px;font-weight:600;">+ Generate</button>
+        </div>
+      </div>
+
+      <!-- Stats bar -->
+      <div id="tc-stats-bar" style="display:flex;gap:8px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;"></div>
+
+      <!-- Filter toolbar -->
+      <div style="display:flex;gap:8px;padding:8px 20px;background:var(--bg);border-bottom:1px solid var(--border);flex-shrink:0;align-items:center;flex-wrap:wrap;">
+        <div style="font-size:10px;color:var(--muted)">Feature:</div>
+        <div id="tc-feature-filters" style="display:flex;gap:4px;flex-wrap:wrap;flex:1;"></div>
+        <div style="font-size:10px;color:var(--muted);margin-left:8px;">Type:</div>
+        <div id="tc-type-filters" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+      </div>
+
+      <!-- TC list -->
+      <div id="tc-list" style="flex:1;min-height:0;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px;">
+        <div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">
+          Chưa có test case — dùng tab Chat → "Viết test case cho..." để tạo
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: PERF HISTORY VIEW -->
+    <div id="history-view" style="flex:1;display:none;flex-direction:column;overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);">
+        <div>
+          <div class="title">📊 Performance History</div>
+          <div class="subtitle">So sánh provider · Token breakdown · Tìm nguyên nhân tốn token</div>
+        </div>
+        <button onclick="loadPerfHistory()" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:6px 12px;cursor:pointer;font-size:11px;">↻ Refresh</button>
+      </div>
+
+      <!-- Sub-tabs -->
+      <div style="display:flex;gap:0;flex-shrink:0;border-bottom:1px solid var(--border);background:var(--bg);">
+        <button id="htab-history"  onclick="switchHistTab('history')"  style="flex:1;padding:8px;font-size:11px;border:none;border-bottom:2px solid var(--blue);background:transparent;color:var(--text);cursor:pointer;font-weight:600;">📋 Log</button>
+        <button id="htab-compare"  onclick="switchHistTab('compare')"  style="flex:1;padding:8px;font-size:11px;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--muted);cursor:pointer;">⚖️ Compare</button>
+        <button id="htab-tokens"   onclick="switchHistTab('tokens')"   style="flex:1;padding:8px;font-size:11px;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--muted);cursor:pointer;">🔍 Token Analysis</button>
+      </div>
+
+      <!-- Log tab -->
+      <div id="hpanel-history" style="flex:1;overflow-y:auto;padding:12px 20px;display:flex;flex-direction:column;gap:6px;">
+        <div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">Chưa có dữ liệu — gửi vài tin nhắn rồi quay lại đây</div>
+      </div>
+
+      <!-- Compare tab -->
+      <div id="hpanel-compare" style="flex:1;overflow-y:auto;padding:12px 20px;display:none;flex-direction:column;gap:10px;">
+        <div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">Chưa có dữ liệu</div>
+      </div>
+
+      <!-- Token analysis tab -->
+      <div id="hpanel-tokens" style="flex:1;overflow-y:auto;padding:12px 20px;display:none;flex-direction:column;gap:10px;">
+        <div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">Chưa có dữ liệu</div>
+      </div>
+    </div>
+
+    <!-- CENTER: SKILL LIBRARY VIEW -->
+    <div id="skills-view" style="flex:1;display:none;flex-direction:column;overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px;">
+        <div>
+          <div class="title">🧰 Skill Library</div>
+          <div class="subtitle">Test template tái sử dụng · Lưu bộ test case · Load vào Mock API Runner</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button onclick="loadSkills()" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:6px 12px;cursor:pointer;font-size:11px;">↻ Refresh</button>
+          <button onclick="saveCurrentQueueAsSkill()" style="background:var(--blue);border:none;border-radius:6px;color:#fff;padding:6px 12px;cursor:pointer;font-size:11px;font-weight:600;">💾 Save Queue as Skill</button>
+        </div>
+      </div>
+      <!-- Save skill form -->
+      <div id="skill-form-panel" style="display:none;padding:14px 20px;background:#1a1a2e;border-bottom:1px solid var(--border);flex-shrink:0;">
+        <div style="font-size:11px;font-weight:600;color:var(--blue);margin-bottom:10px;">💾 Lưu Test Queue thành Skill</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input id="skill-name" placeholder="Tên skill (VD: Login Flow)" maxlength="50"
+            style="flex:1;min-width:160px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;" />
+          <input id="skill-desc" placeholder="Mô tả ngắn..."
+            style="flex:2;min-width:200px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;" />
+          <select id="skill-category" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;">
+            <option>General</option><option>Auth</option><option>CRUD</option>
+            <option>Payment</option><option>Search</option><option>Admin</option>
+          </select>
+          <button onclick="confirmSaveSkill()" style="background:var(--green);border:none;border-radius:6px;color:#000;padding:6px 14px;cursor:pointer;font-size:11px;font-weight:700;">Lưu</button>
+          <button onclick="document.getElementById('skill-form-panel').style.display='none'" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:6px 10px;cursor:pointer;font-size:11px;">✕</button>
+        </div>
+        <div id="skill-form-msg" style="font-size:10px;color:var(--muted);margin-top:6px;"></div>
+      </div>
+      <!-- Skills list -->
+      <div id="skills-list" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px;">
+        <div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">
+          Chưa có skill — tạo test queue ở Mock API Runner rồi nhấn "Save Queue as Skill"
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: CRON JOBS VIEW -->
+    <div id="cron-view" style="flex:1;display:none;flex-direction:column;overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px;">
+        <div>
+          <div class="title">⏰ Cron Jobs</div>
+          <div class="subtitle">Lập lịch chạy Skill tự động · APScheduler · Xem lịch sử chạy</div>
+        </div>
+        <button onclick="loadCrons()" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:6px 12px;cursor:pointer;font-size:11px;">↻ Refresh</button>
+      </div>
+      <!-- Add cron form -->
+      <div style="padding:14px 20px;background:#1a1a2e;border-bottom:1px solid var(--border);flex-shrink:0;">
+        <div style="font-size:11px;font-weight:600;color:var(--orange);margin-bottom:10px;">⏰ Tạo lịch chạy mới</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input id="cron-name" placeholder="Tên lịch (VD: Daily Login Check)" maxlength="50"
+            style="flex:1;min-width:140px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;" />
+          <select id="cron-skill-select" style="flex:1;min-width:140px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;">
+            <option value="">Chọn skill...</option>
+          </select>
+          <input id="cron-schedule" placeholder="mỗi ngày 9h / every day 8am / hourly / mỗi thứ hai 9h"
+            style="flex:2;min-width:200px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:11px;outline:none;" />
+          <button onclick="saveCron()" style="background:var(--orange);border:none;border-radius:6px;color:#000;padding:6px 14px;cursor:pointer;font-size:11px;font-weight:700;">+ Thêm</button>
+        </div>
+        <div id="cron-form-msg" style="font-size:10px;color:var(--muted);margin-top:6px;"></div>
+      </div>
+      <!-- Crons list -->
+      <div id="crons-list" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px;">
+        <div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">
+          Chưa có lịch — tạo skill trước rồi lập lịch ở đây
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /#body -->
+</div><!-- /#app -->
+
+<script>
+// ── API Key interceptor — tự động thêm X-API-Key header cho mọi /api/ call ──
+(function() {
+  const _orig = window.fetch.bind(window);
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    const key = localStorage.getItem('qa_api_key') || '';
+    if (key && typeof url === 'string' && url.startsWith('/api/')) {
+      opts = { ...opts, headers: { 'X-API-Key': key, ...(opts.headers || {}) } };
+    }
+    return _orig(url, opts).then(res => {
+      if ((res.status === 401 || res.status === 403) && typeof url === 'string' && url.startsWith('/api/')) {
+        const inp = document.getElementById('api-key-input');
+        if (inp) { inp.style.borderColor = 'var(--red)'; inp.style.opacity = '1'; inp.focus(); }
+        _showKeyBanner();
+        throw new Error('🔑 API Key chưa đúng — nhập vào ô góc trên phải rồi reload trang');
+      }
+      return res;
+    });
+  };
+})();
+
+function setApiKey(key) {
+  key = (key || '').trim();
+  if (key) localStorage.setItem('qa_api_key', key);
+  else localStorage.removeItem('qa_api_key');
+  const inp = document.getElementById('api-key-input');
+  if (inp) inp.style.borderColor = key ? 'var(--green)' : '';
+  if (key) {
+    const b = document.getElementById('key-banner');
+    if (b) { b.remove(); _bannerShown = false; }
+  }
+}
+
+// Restore key từ localStorage khi load trang
+(function() {
+  const k = localStorage.getItem('qa_api_key');
+  if (k) {
+    const inp = document.getElementById('api-key-input');
+    if (inp) { inp.value = k; inp.style.opacity = '1'; inp.style.borderColor = 'var(--green)'; }
+  }
+})();
+
+let _bannerShown = false;
+function _showKeyBanner() {
+  if (_bannerShown) return;
+  _bannerShown = true;
+  const b = document.createElement('div');
+  b.id = 'key-banner';
+  b.style.cssText = `
+    position:fixed;top:0;left:0;right:0;z-index:9999;
+    background:var(--red);color:#fff;
+    padding:10px 16px;font-size:13px;font-weight:600;
+    display:flex;align-items:center;gap:12px;
+  `;
+  b.innerHTML = `
+    <span>🔑 Cần nhập API Key để dùng QA Copilot — nhập vào ô phía trên bên phải rồi nhấn Enter.</span>
+    <button onclick="document.getElementById('key-banner').remove();_bannerShown=false;"
+      style="margin-left:auto;background:rgba(255,255,255,.2);border:none;color:#fff;
+             padding:3px 10px;border-radius:4px;cursor:pointer;font-size:12px;">✕ Đóng</button>
+  `;
+  document.body.prepend(b);
+  const inp = document.getElementById('api-key-input');
+  if (inp) { inp.focus(); inp.style.borderColor = 'var(--red)'; }
+}
+
+// ── Persistence helpers ──
+const STORAGE_KEY = 'qa_copilot_chat_v1';
+const MAX_STORED  = 200; // giới hạn số tin nhắn lưu
+
+function saveChat() {
+  try {
+    const payload = {
+      messages:    state.messages.slice(-MAX_STORED),
+      apiMessages: state.apiMessages.slice(-MAX_STORED),
+      counts:      state.counts,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch(e) { /* quota exceeded — ignore */ }
+}
+
+function loadChat() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const payload = JSON.parse(raw);
+    state.messages    = payload.messages    || [];
+    state.apiMessages = payload.apiMessages || [];
+    state.counts      = payload.counts      || { req: 0, tc: 0, bug: 0 };
+  } catch(e) { localStorage.removeItem(STORAGE_KEY); }
+}
+
+function clearChat() {
+  state.messages = [];
+  state.apiMessages = [];
+  state.counts = { req: 0, tc: 0, bug: 0 };
+  localStorage.removeItem(STORAGE_KEY);
+  document.getElementById('messages').innerHTML =
+    `<div id="empty-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--muted);text-align:center">
+      <div style="font-size:40px">🤖</div>
+      <div style="font-weight:600;font-size:13px">QA Copilot sẵn sàng</div>
+      <p style="font-size:12px;line-height:1.6;max-width:300px">Dán requirement, yêu cầu viết test case, chạy API test — thời gian &amp; chi phí được đo real-time.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:8px">
+        <button onclick="fillInput('Paste requirement: ')"     style="background:var(--card);border:1px solid var(--border);border-radius:20px;color:var(--subtle);padding:5px 12px;cursor:pointer;font-size:11px">📄 Paste requirement</button>
+        <button onclick="fillInput('Phân tích risk: ')"       style="background:var(--card);border:1px solid var(--border);border-radius:20px;color:var(--subtle);padding:5px 12px;cursor:pointer;font-size:11px">⚠️ Risk analysis</button>
+        <button onclick="fillInput('Viết test plan cho: ')"   style="background:var(--card);border:1px solid var(--border);border-radius:20px;color:var(--subtle);padding:5px 12px;cursor:pointer;font-size:11px">🗂️ Test plan</button>
+        <button onclick="fillInput('Viết test case cho: ')"   style="background:var(--card);border:1px solid var(--border);border-radius:20px;color:var(--subtle);padding:5px 12px;cursor:pointer;font-size:11px">🧪 Test cases</button>
+        <button onclick="fillInput('Tạo bug report: ')"       style="background:var(--card);border:1px solid var(--border);border-radius:20px;color:var(--subtle);padding:5px 12px;cursor:pointer;font-size:11px">🐛 Bug report</button>
+        <button onclick="fillInput('Hiện coverage matrix')"   style="background:var(--card);border:1px solid var(--border);border-radius:20px;color:var(--subtle);padding:5px 12px;cursor:pointer;font-size:11px">📊 Coverage</button>
+      </div>
+    </div>`;
+  document.getElementById('cnt-req').textContent  = 0;
+  document.getElementById('cnt-tc').textContent   = 0;
+  document.getElementById('cnt-bug').textContent  = 0;
+}
+
+// ── State ──
+const state = {
+  messages: [],       // display messages
+  apiMessages: [],    // API messages (sent to backend)
+  loading: false,
+  counts: { req: 0, tc: 0, bug: 0 },
+  testQueue: [],
+  perf: null,
+};
+
+const CAP_COLORS = {
+  "CAP-1":"#4f8ef7","CAP-2":"#f5a623","CAP-3":"#7c5cfc",
+  "CAP-4":"#22d67a","CAP-5":"#f25555","CAP-6":"#4f8ef7",
+  "CAP-7":"#f25555","CAP-8":"#22d67a","CAP-9":"#f5a623","CHAT":"#8892b0"
+};
+
+function detectCap(text) {
+  if (/requirement|yêu cầu|feature|user story/i.test(text)) return "CAP-1";
+  if (/risk|rủi ro/i.test(text))                            return "CAP-2";
+  if (/test plan|kế hoạch/i.test(text))                    return "CAP-3";
+  if (/test case|viết test/i.test(text))                   return "CAP-4";
+  if (/api|endpoint|chạy test|run/i.test(text))            return "CAP-5";
+  if (/synthesis|tổng hợp/i.test(text))                    return "CAP-6";
+  if (/bug|lỗi/i.test(text))                               return "CAP-7";
+  if (/coverage|matrix/i.test(text))                       return "CAP-8";
+  if (/export|xuất/i.test(text))                           return "CAP-9";
+  return "CHAT";
+}
+
+function countMatches(text, re) { return (text.match(re) || []).length; }
+
+// ── View switch ──
+function switchView(view, el) {
+  document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('chat-view').style.display     = view === 'chat'    ? 'flex' : 'none';
+  document.getElementById('mock-view').style.display     = view === 'mock'    ? 'flex' : 'none';
+  document.getElementById('req-view').style.display      = view === 'req'     ? 'flex' : 'none';
+  document.getElementById('tc-view').style.display       = view === 'tc'      ? 'flex' : 'none';
+  document.getElementById('history-view').style.display  = view === 'history' ? 'flex' : 'none';
+  document.getElementById('skills-view').style.display   = view === 'skills'  ? 'flex' : 'none';
+  document.getElementById('cron-view').style.display     = view === 'cron'    ? 'flex' : 'none';
+  // Perf panel chỉ hữu ích ở chat và mock
+  document.getElementById('perf-panel').style.display    = ['chat', 'mock'].includes(view) ? 'flex' : 'none';
+  if (view === 'req')     loadRequirements();
+  if (view === 'tc')      loadTestCases();
+  if (view === 'history') loadPerfHistory();
+  if (view === 'skills')  loadSkills();
+  if (view === 'cron')    { loadCrons(); loadSkillsForCronSelect(); }
+}
+
+// ── Requirements tab ──
+let _allReqs = {};       // grouped { feature: [req, ...] }
+let _activeFeature = null;
+let _allFeatures = [];   // merged: user-defined groups + groups có reqs
+
+async function loadRequirements() {
+  try {
+    const [grouped, stats, groups] = await Promise.all([
+      fetch('/api/requirements/grouped').then(r => r.json()),
+      fetch('/api/requirements/stats').then(r => r.json()),
+      fetch('/api/feature-groups').then(r => r.json()),
+    ]);
+    _allReqs = grouped;
+    _featureGroups = groups;
+    renderReqStats(stats);
+    // Merge: tất cả user-defined groups trước, rồi groups có reqs nhưng chưa được define
+    const userGroupNames = groups.map(g => g.name);
+    const reqGroupNames  = Object.keys(grouped).filter(k => !userGroupNames.includes(k));
+    _allFeatures = [...userGroupNames, ...reqGroupNames];
+    renderFeatureFilters(_allFeatures);
+    renderReqList(grouped, _activeFeature);
+    document.getElementById('cnt-req').textContent = stats.total_active || 0;
+  } catch(e) {
+    document.getElementById('req-list').innerHTML =
+      `<div style="color:var(--red);font-size:12px">Lỗi tải requirements: ${esc(e.message)}</div>`;
+  }
+}
+
+// Được gọi khi click một filter chip — dùng data-feature để tránh HTML entity encoding
+function setActiveFeature(el) {
+  const f = el.dataset.feature || null;  // null = "Tất cả"
+  _activeFeature = f;
+  document.getElementById('req-groups-panel').style.display = 'none'; // auto-close groups panel
+  renderFeatureFilters(_allFeatures);
+  renderReqList(_allReqs, _activeFeature);
+}
+
+function renderReqStats(stats) {
+  const el = document.getElementById('req-stats-bar');
+  const byFeat = stats.by_feature || {};
+  const topFeatures = Object.entries(byFeat).sort((a,b) => b[1]-a[1]).slice(0,4);
+  el.innerHTML = `
+    <div class="metric-card" style="padding:6px 12px;flex:none">
+      <div class="metric-value" style="font-size:20px;color:var(--blue)">${stats.total_active||0}</div>
+      <div class="metric-label">Total Active</div>
+    </div>
+    <div class="metric-card" style="padding:6px 12px;flex:none">
+      <div class="metric-value" style="font-size:20px;color:var(--orange)">${stats.with_ambiguities||0}</div>
+      <div class="metric-label">⚠️ Ambiguous</div>
+    </div>
+    <div class="metric-card" style="padding:6px 12px;flex:none">
+      <div class="metric-value" style="font-size:20px;color:var(--green)">${Object.keys(byFeat).length}</div>
+      <div class="metric-label">Features</div>
+    </div>
+    ${topFeatures.map(([f,c]) => `
+      <div class="metric-card" style="padding:6px 12px;flex:none">
+        <div class="metric-value" style="font-size:16px;color:var(--text)">${c}</div>
+        <div class="metric-label">${esc(f)}</div>
+      </div>`).join('')}
+  `;
+}
+
+function renderFeatureFilters(features) {
+  const el = document.getElementById('feature-filters');
+  // Dùng data-feature thay vì inline string để tránh & bị encode thành &amp;
+  el.innerHTML = `
+    <div class="chip" style="font-size:10px;padding:3px 10px;${!_activeFeature?'border-color:var(--blue);color:var(--blue)':''}"
+      data-feature="" onclick="setActiveFeature(this)">Tất cả</div>
+    ${features.map(f => `
+      <div class="chip" style="font-size:10px;padding:3px 10px;${_activeFeature===f?'border-color:var(--blue);color:var(--blue)':''}"
+        data-feature="${esc(f)}" onclick="setActiveFeature(this)">${esc(f)}</div>
+    `).join('')}
+  `;
+}
+
+function renderReqList(grouped, filterFeature, search='') {
+  const el = document.getElementById('req-list');
+  const keys = filterFeature ? [filterFeature] : Object.keys(grouped);
+
+  if (!keys.length) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px">
+      Chưa có requirements — dùng tab Chat → paste requirement để bắt đầu</div>`;
+    return;
+  }
+
+  const html = keys.map(feature => {
+    let reqs = grouped[feature] || [];
+    if (search) reqs = reqs.filter(r =>
+      normText(r.title).includes(search) ||
+      normText(r.description).includes(search) ||
+      normText(r.req_id).includes(search)
+    );
+    if (!reqs.length) return '';
+
+    const rows = reqs.map(r => {
+      const hasAmb = r.ambiguities && r.ambiguities.length > 0;
+      const ambHtml = hasAmb
+        ? `<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">
+            ${r.ambiguities.map(a => `<span style="font-size:9px;background:#2a1f00;color:var(--orange);padding:2px 6px;border-radius:3px">⚠️ ${esc(a)}</span>`).join('')}
+           </div>` : '';
+
+      const acs = Array.isArray(r.acceptance_criteria) ? r.acceptance_criteria
+                  : (r.acceptance_criteria ? JSON.parse(r.acceptance_criteria) : []);
+      const acId = 'ac-' + r.req_id;
+      const acHtml = acs.length ? `
+        <div style="margin-top:6px">
+          <button onclick="document.getElementById('${acId}').style.display=document.getElementById('${acId}').style.display==='none'?'block':'none'"
+            style="font-size:9px;background:#0d1f0d;border:1px solid #1a3a1a;border-radius:3px;
+              color:#4caf50;padding:2px 7px;cursor:pointer">✓ AC (${acs.length})</button>
+          <div id="${acId}" style="display:none;margin-top:5px;padding:6px 10px;
+            background:#0a1a0a;border-left:2px solid #4caf50;border-radius:0 4px 4px 0">
+            ${acs.map(a => `<div style="font-size:10px;color:#a5d6a7;line-height:1.6;font-family:monospace">${esc(a)}</div>`).join('')}
+          </div>
+        </div>` : '';
+
+      return `
+        <div style="padding:10px 12px;border-bottom:1px solid var(--border);transition:background .1s"
+          onmouseover="this.style.background='#1a1f2e'" onmouseout="this.style.background=''">
+          <div style="display:flex;align-items:flex-start;gap:10px;">
+            <span style="font-family:monospace;font-size:10px;color:var(--blue);flex-shrink:0;margin-top:2px;
+              background:#0d1829;padding:2px 7px;border-radius:3px">${esc(r.req_id)}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;color:var(--text);line-height:1.5">${esc(r.description)}</div>
+              ${ambHtml}
+              ${acHtml}
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+              <span style="font-size:9px;color:var(--muted)">v${esc(r.version)}</span>
+              <div style="display:flex;gap:4px">
+                <button onclick="showHistory('${esc(r.req_id)}')"
+                  style="font-size:9px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--subtle);padding:2px 6px;cursor:pointer">History</button>
+                <button onclick="confirmDeprecate('${esc(r.req_id)}')"
+                  style="font-size:9px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--red);padding:2px 6px;cursor:pointer">✕</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    return `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:4px">
+        <div style="padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border);border-radius:10px 10px 0 0;
+          display:flex;align-items:center;gap:8px;">
+          <span style="font-size:12px;font-weight:700;color:var(--text)">${esc(feature)}</span>
+          <span style="font-size:10px;background:var(--card);color:var(--subtle);padding:1px 7px;border-radius:10px;font-family:monospace">${reqs.length}</span>
+        </div>
+        ${rows}
+      </div>`;
+  }).join('');
+
+  el.innerHTML = html || `<div style="color:var(--muted);font-size:12px;text-align:center;margin-top:20px">Không tìm thấy kết quả</div>`;
+}
+
+function normText(s) {
+  return (s || '').toLowerCase()
+    .replace(/\u0111/g, 'd')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function filterReqs(search) {
+  renderReqList(_allReqs, _activeFeature, normText(search));
+}
+
+async function showHistory(reqId) {
+  const history = await fetch(`/api/requirements/${reqId}/history`).then(r => r.json());
+  if (!history.length) { alert(`${reqId} chưa có version history`); return; }
+  const lines = history.map(h =>
+    `v${h.version} · ${h.changed_at.substring(0,16)}\n  ${h.change_summary}\n  ${h.description.substring(0,80)}...`
+  ).join('\n\n');
+  alert(`📋 ${reqId} — Version History\n\n${lines}`);
+}
+
+async function confirmDeprecate(reqId) {
+  if (!confirm(`Đánh dấu ${reqId} là deprecated?`)) return;
+  await fetch(`/api/requirements/${reqId}`, { method: 'DELETE' });
+  loadRequirements();
+}
+
+async function runDiff() {
+  const text = document.getElementById('diff-input').value.trim();
+  if (!text) return;
+  const res  = await fetch('/api/requirements/diff', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  const data = await res.json();
+  const el   = document.getElementById('diff-result');
+  el.innerHTML = `
+    <div style="font-weight:600;color:var(--text);margin-bottom:6px">📊 ${esc(data.summary)}</div>
+    ${data.new.length ? `<div style="color:var(--green);font-size:10px">✅ Mới: ${data.new.map(r=>esc(r.title)).join(', ')}</div>` : ''}
+    ${data.changed.length ? `<div style="color:var(--orange);font-size:10px">✏️ Thay đổi: ${data.changed.map(r=>`${esc(r.req_id)}`).join(', ')}</div>` : ''}
+    ${data.deprecated.length ? `<div style="color:var(--red);font-size:10px">🗑️ Có thể bị loại: ${data.deprecated.map(esc).join(', ')}</div>` : ''}
+    <button onclick="applyDiff('${esc(JSON.stringify(text).slice(1,-1))}')"
+      style="margin-top:8px;background:var(--green);border:none;border-radius:5px;color:#000;padding:5px 12px;cursor:pointer;font-size:10px;font-weight:700">
+      ✅ Áp dụng (save vào DB)
+    </button>`;
+}
+
+async function applyDiff(textEscaped) {
+  const res = await fetch('/api/requirements/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: document.getElementById('diff-input').value }),
+  });
+  const data = await res.json();
+  document.getElementById('diff-result').innerHTML +=
+    `<div style="color:var(--green);font-size:10px;margin-top:4px">✅ Đã lưu: +${data.total_new} mới, ~${data.total_updated} cập nhật</div>`;
+  setTimeout(loadRequirements, 500);
+}
+
+// ── Feature Groups management ──
+let _featureGroups = [];
+
+function toggleGroupsPanel() {
+  const el = document.getElementById('req-groups-panel');
+  const isHidden = el.style.display === 'none';
+  el.style.display = isHidden ? 'block' : 'none';
+  if (isHidden) loadGroups();
+}
+
+async function loadGroups() {
+  const data = await fetch('/api/feature-groups').then(r => r.json());
+  _featureGroups = data;
+  renderGroupsList();
+}
+
+function renderGroupsList() {
+  const el = document.getElementById('groups-list');
+  if (!_featureGroups.length) {
+    el.innerHTML = '<div style="font-size:10px;color:var(--muted);padding:4px 0">Chưa có group nào — tạo group bên dưới để bắt đầu phân loại tự động</div>';
+    return;
+  }
+  el.innerHTML = _featureGroups.map(g => {
+    const color = g.color || '#a78bfa';
+    const kws = (g.keywords || []).slice(0, 4).join(', ');
+    return `
+      <div style="display:flex;align-items:center;gap:5px;background:var(--card);border:1px solid ${color}33;
+        border-radius:6px;padding:4px 10px;max-width:320px;" title="${esc(g.description)}">
+        <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+        <span style="font-size:11px;font-weight:600;color:${color}">${esc(g.name)}</span>
+        ${kws ? `<span style="font-size:9px;color:var(--muted)">[${esc(kws)}]</span>` : ''}
+        <button onclick="deleteGroup('${esc(g.name)}')"
+          style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0 2px;margin-left:2px;" title="Xóa group">✕</button>
+      </div>`;
+  }).join('');
+}
+
+async function saveGroup() {
+  const name = document.getElementById('grp-name').value.trim();
+  if (!name) { document.getElementById('groups-msg').textContent = '⚠️ Vui lòng nhập tên group'; return; }
+  const desc = document.getElementById('grp-desc').value.trim();
+  const kws  = document.getElementById('grp-keywords').value.split(',').map(s => s.trim()).filter(Boolean);
+  const color = document.getElementById('grp-color').value;
+
+  const res = await fetch('/api/feature-groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description: desc, keywords: kws, color }),
+  });
+  const data = await res.json();
+  document.getElementById('groups-msg').innerHTML =
+    `<span style="color:var(--green)">✅ ${data.action === 'created' ? 'Đã tạo' : 'Đã cập nhật'} group "${esc(name)}" — đang phân loại lại...</span>`;
+  // Clear form
+  document.getElementById('grp-name').value = '';
+  document.getElementById('grp-desc').value = '';
+  document.getElementById('grp-keywords').value = '';
+  await loadGroups();
+  await reclassifyAll();  // tự động reclassify ngay khi tạo/update group
+}
+
+async function deleteGroup(name) {
+  if (!confirm(`Xóa group "${name}"? Requirements trong group sẽ chuyển về "Unassigned".`)) return;
+  const res = await fetch(`/api/feature-groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  if (res.ok) {
+    document.getElementById('groups-msg').innerHTML = `<span style="color:var(--orange)">🗑 Đã xóa group "${esc(name)}"</span>`;
+    await loadGroups();
+    loadRequirements();
+  }
+}
+
+async function reclassifyAll() {
+  document.getElementById('groups-msg').textContent = '↺ Đang reclassify...';
+  const data = await fetch('/api/requirements/reclassify', { method: 'POST' }).then(r => r.json());
+  const msg = data.reclassified > 0
+    ? `✅ Đã cập nhật ${data.reclassified}/${data.total_checked} requirements`
+    : `✓ Tất cả ${data.total_checked} requirements đã đúng nhóm`;
+  document.getElementById('groups-msg').innerHTML = `<span style="color:var(--green)">${msg}</span>`;
+  if (data.reclassified > 0) loadRequirements();
+}
+
+// ── Quick actions ──
+function quickAction(cap) {
+  const prompts = {
+    "CAP-1": "Đọc requirement: ",
+    "CAP-2": "Phân tích risk cho requirement hiện tại",
+    "CAP-3": "Viết test plan cho requirement hiện tại",
+    "CAP-4": "Viết test case cho requirement hiện tại",
+    "CAP-5": "Chạy API test cho endpoint: ",
+    "CAP-6": "Tổng hợp requirement",
+    "CAP-7": "Tạo bug report",
+    "CAP-8": "Hiện coverage matrix",
+    "CAP-9": "Export test cases sang Markdown",
+  };
+  fillInput(prompts[cap] || "");
+  switchView('chat', document.querySelector('.nav-item[data-view="chat"]'));
+}
+
+function fillInput(text) {
+  const inp = document.getElementById('input');
+  inp.value = text;
+  inp.focus();
+  autoResize(inp);
+  document.getElementById('send-btn').disabled = !text.trim();
+}
+
+// ── Textarea resize ──
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  document.getElementById('send-btn').disabled = !el.value.trim();
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+// ── Upload / Extract ──────────────────────────────────────────────────────
+function toggleUpload() {
+  const bar = document.getElementById('upload-bar');
+  bar.style.display = bar.style.display === 'none' ? 'flex' : 'none';
+  if (bar.style.display === 'flex') document.getElementById('url-input').focus();
+}
+
+function setUploadStatus(msg, isErr) {
+  const el = document.getElementById('upload-status');
+  el.style.display = msg ? 'block' : 'none';
+  el.style.color = isErr ? 'var(--red)' : 'var(--subtle)';
+  el.textContent = msg;
+}
+
+async function handleFileUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  setUploadStatus(`⏳ Đang xử lý ${file.name}...`);
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/api/extract', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Lỗi server');
+    const prefix = `[Từ file: ${data.source}]\n`;
+    fillInput(prefix + data.text);
+    setUploadStatus(`✅ Đã extract ${data.chars} ký tự từ ${data.type.toUpperCase()} — ${data.source}`);
+    document.getElementById('upload-bar').style.display = 'none';
+  } catch(e) {
+    setUploadStatus('❌ ' + e.message, true);
+  }
+  input.value = '';
+}
+
+async function fetchUrl() {
+  const url = document.getElementById('url-input').value.trim();
+  if (!url) return;
+  setUploadStatus(`⏳ Đang fetch ${url}...`);
+  const fd = new FormData();
+  fd.append('url', url);
+  try {
+    const res = await fetch('/api/extract', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Lỗi server');
+    const prefix = `[Từ URL: ${data.source}]\n`;
+    fillInput(prefix + data.text);
+    setUploadStatus(`✅ Đã extract ${data.chars} ký tự từ ${data.source}`);
+    document.getElementById('url-input').value = '';
+    document.getElementById('upload-bar').style.display = 'none';
+  } catch(e) {
+    setUploadStatus('❌ ' + e.message, true);
+  }
+}
+
+// ── Render message ──
+function renderMsg(msg) {
+  const div = document.createElement('div');
+  div.className = `msg ${msg.role === 'user' ? 'user' : 'agent'}`;
+
+  if (msg.cap && msg.cap !== 'CHAT') {
+    const tag = document.createElement('div');
+    tag.className = 'cap-tag';
+    tag.style.color = CAP_COLORS[msg.cap] || '#8892b0';
+    tag.style.borderColor = CAP_COLORS[msg.cap] || '#8892b0';
+    tag.style.border = `1px solid ${CAP_COLORS[msg.cap] || '#8892b0'}`;
+    tag.textContent = msg.cap;
+    div.appendChild(tag);
+  }
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  if (msg.role === 'agent' && typeof marked !== 'undefined') {
+    bubble.innerHTML = marked.parse(msg.content);
+  } else {
+    bubble.textContent = msg.content;
+  }
+  div.appendChild(bubble);
+
+  if (msg.meta) {
+    const meta = document.createElement('div');
+    meta.className = 'msg-meta';
+    meta.innerHTML = `<span>${new Date(msg.meta.ts).toLocaleTimeString('vi')}</span>`;
+    if (msg.meta.duration) {
+      const cls = msg.meta.duration > 3 ? 'meta-slow' : msg.meta.duration > 1.5 ? 'meta-mid' : 'meta-fast';
+      meta.innerHTML += `<span class="meta-tag ${cls}">⏱ ${msg.meta.duration.toFixed(2)}s</span>`;
+    }
+    if (msg.meta.cost > 0) {
+      meta.innerHTML += `<span class="meta-tag" style="color:var(--orange)">💰 $${msg.meta.cost.toFixed(4)}</span>`;
+    }
+    if (msg.meta.tokens > 0) {
+      meta.innerHTML += `<span class="meta-tag">${msg.meta.tokens} tok</span>`;
+    }
+    div.appendChild(meta);
+  }
+  return div;
+}
+
+function appendMsg(msg) {
+  const container = document.getElementById('messages');
+  const empty = document.getElementById('empty-state');
+  if (empty) empty.remove();
+  container.appendChild(renderMsg(msg));
+  container.scrollTop = container.scrollHeight;
+  saveChat();
+}
+
+// ── Send chat ──
+async function sendMessage() {
+  const inp = document.getElementById('input');
+  const text = inp.value.trim();
+  if (!text || state.loading) return;
+
+  const cap = detectCap(text);
+  const ts = Date.now();
+
+  inp.value = '';
+  inp.style.height = '';
+  document.getElementById('send-btn').disabled = true;
+
+  const userMsg = { role: 'user', content: text, cap, meta: { ts } };
+  state.messages.push(userMsg);
+  appendMsg(userMsg);
+
+  state.apiMessages.push({ role: 'user', content: text });
+  state.loading = true;
+  document.getElementById('typing').style.display = 'flex';
+  document.getElementById('messages').scrollTop = 999999;
+
+  const start = Date.now();
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: state.apiMessages, cap }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'API error');
+
+    const duration = (Date.now() - start) / 1000;
+    const tokens = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
+
+    state.apiMessages.push({ role: 'assistant', content: data.content });
+
+    const agentMsg = {
+      role: 'agent', content: data.content, cap,
+      meta: { ts: Date.now(), duration, cost: data.cost || 0, tokens }
+    };
+    state.messages.push(agentMsg);
+    appendMsg(agentMsg);
+
+    updateCounts(data.content);
+    refreshStats();
+
+  } catch (err) {
+    appendMsg({ role: 'agent', content: `❌ Lỗi: ${err.message}`, cap: 'CHAT', meta: { ts: Date.now() } });
+    refreshStats();
+  }
+
+  state.loading = false;
+  document.getElementById('typing').style.display = 'none';
+  document.getElementById('send-btn').disabled = false;
+}
+
+function updateCounts(text) {
+  state.counts.req  = Math.max(state.counts.req,  countMatches(text, /REQ-\d+/g));
+  state.counts.tc   = Math.max(state.counts.tc,   countMatches(text, /TC_[A-Z]+_\d+/g));
+  state.counts.bug  = Math.max(state.counts.bug,  countMatches(text, /BUG-\d+/g));
+  document.getElementById('cnt-req').textContent  = state.counts.req;
+  document.getElementById('cnt-tc').textContent   = state.counts.tc;
+  document.getElementById('cnt-bug').textContent  = state.counts.bug;
+}
+
+// ── Performance stats ──
+async function refreshStats() {
+  try {
+    const res = await fetch('/api/stats');
+    const data = await res.json();
+    if (data.total_interactions === 0) return;
+
+    const ov = data.overview || {};
+    const perf = data.performance || {};
+    const tok = data.tokens || {};
+    const costs = data.costs || {};
+
+    document.getElementById('m-runs').textContent = ov.total_interactions || '0';
+    document.getElementById('m-rate').textContent = ov.success_rate || '—';
+    document.getElementById('m-avg').textContent  = perf.avg_duration_seconds ? perf.avg_duration_seconds + 's' : '—';
+
+    const costNum = parseFloat((costs.total_cost || '$0').replace('$',''));
+    document.getElementById('m-cost').textContent = costs.total_cost || '$0.0000';
+    document.getElementById('m-cost').style.color =
+      costNum > 0.05 ? 'var(--red)' : costNum > 0.01 ? 'var(--orange)' : 'var(--green)';
+
+    const totalTok = tok.total_tokens_used || 0;
+    document.getElementById('tok-total').textContent = `${totalTok.toLocaleString()} / ~50k`;
+    document.getElementById('tok-bar').style.width = Math.min(totalTok / 50000 * 100, 100) + '%';
+
+    const recent = await fetch('/api/stats/recent?count=6').then(r => r.json());
+    renderRecentRuns(recent);
+    renderLatencyBreakdown(recent);
+    renderCostBars(recent);
+
+  } catch (e) { /* ignore */ }
+}
+
+// [SEC-5] Sanitize helper — tránh XSS khi inject server data vào DOM
+function esc(str) {
+  const d = document.createElement('div');
+  d.textContent = String(str ?? '');
+  return d.innerHTML;
+}
+
+function renderRecentRuns(runs) {
+  const el = document.getElementById('recent-runs');
+  if (!runs.length) return;
+  // Dùng esc() cho tất cả data từ server trước khi đưa vào innerHTML
+  el.innerHTML = runs.slice(0, 6).map(r => {
+    const ok    = r.success;
+    const color = ok ? 'var(--green)' : 'var(--red)';
+    const cap   = esc((r.tools_used || [])[0] || 'CHAT');
+    const dur   = esc((r.duration || 0).toFixed(2));
+    return `<div class="run-item">
+      <div class="run-dot" style="background:${color}"></div>
+      <div class="run-cap" style="color:${CAP_COLORS[(r.tools_used||[])[0]]||'#8892b0'}">${cap}</div>
+      <div class="run-dur">${dur}s</div>
+      <div class="run-status" style="color:${color}">${ok ? 'OK' : 'ERR'}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderLatencyBreakdown(runs) {
+  const el = document.getElementById('latency-breakdown');
+  if (!runs.length) { el.textContent = '—'; return; }
+  const sorted = [...runs].sort((a,b) => b.duration - a.duration).slice(0,4);
+  const maxD = sorted[0]?.duration || 1;
+  el.innerHTML = sorted.map(r => {
+    const pct   = (r.duration / maxD * 100).toFixed(0);
+    const color = r.duration > 3 ? 'var(--red)' : r.duration > 1.5 ? 'var(--orange)' : 'var(--green)';
+    const cap   = esc(((r.tools_used||[])[0]||'CHAT').substring(0,8));
+    const dur   = esc(r.duration.toFixed(2));
+    return `<div class="sparkbar">
+      <div class="sparkbar-label">${cap}</div>
+      <div class="sparkbar-track"><div class="sparkbar-fill" style="background:${color};width:${pct}%"></div></div>
+      <div class="sparkbar-value">${dur}s</div>
+    </div>`;
+  }).join('');
+}
+
+function renderCostBars(runs) {
+  const el = document.getElementById('cost-bars');
+  const withCost = runs.filter(r => r.cost != null).slice(-8);
+  if (!withCost.length) { el.textContent = 'Chưa có dữ liệu'; return; }
+  const maxC = Math.max(...withCost.map(r => r.cost), 0.0001);
+  el.innerHTML = withCost.map(r => {
+    const h     = Math.max((r.cost / maxC) * 38, 2);
+    const color = r.success ? 'var(--blue)' : 'var(--red)';
+    const cost  = esc(r.cost.toFixed(3));
+    return `<div class="cost-bar-col">
+      <div class="cost-bar-fill" style="height:${h}px;background:${color}"></div>
+      <div class="cost-bar-label">$${cost}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Mock test runner ──
+let testQueue = [];
+
+function _parseExtract(str) {
+  if (!str || !str.trim()) return null;
+  const result = {};
+  str.split(',').forEach(part => {
+    const [k, v] = part.split('=').map(s => s.trim());
+    if (k && v) result[k] = v;
+  });
+  return Object.keys(result).length ? result : null;
+}
+
+function addTestCase() {
+  const tc = {
+    tc_id:           document.getElementById('tc-id').value.trim() || `TC_${Date.now()}`,
+    method:          document.getElementById('tc-method').value,
+    path:            document.getElementById('tc-path').value.trim() || '/',
+    expected_status: parseInt(document.getElementById('tc-status').value) || 200,
+    max_latency_ms:  parseInt(document.getElementById('tc-latency').value) || 2000,
+    expected_fields: null,
+    extract:         _parseExtract(document.getElementById('tc-extract').value),
+    depends_on:      document.getElementById('tc-depends').value.trim()
+                       ? document.getElementById('tc-depends').value.trim().split(/[\s,]+/).filter(Boolean)
+                       : null,
+  };
+  const fieldsStr = document.getElementById('tc-fields').value.trim();
+  if (fieldsStr) {
+    try { tc.expected_fields = JSON.parse(fieldsStr); } catch(e) { alert('Expected fields phải là JSON hợp lệ'); return; }
+  }
+  testQueue.push(tc);
+  renderQueue();
+}
+
+function loadPreset() {
+  testQueue = [
+    { tc_id: "TC_AUTH_001", method: "POST", path: "/auth/login",         expected_status: 200, expected_fields: { expires_in: 3600 }, max_latency_ms: 500  },
+    { tc_id: "TC_AUTH_002", method: "POST", path: "/auth/login/invalid",  expected_status: 401, max_latency_ms: 500  },
+    { tc_id: "TC_USER_001", method: "GET",  path: "/users/123",           expected_status: 200, expected_fields: { role: "qa" },       max_latency_ms: 300  },
+    { tc_id: "TC_PROD_001", method: "GET",  path: "/products",            expected_status: 200, max_latency_ms: 500  },
+    { tc_id: "TC_HLTH_001", method: "GET",  path: "/health",              expected_status: 200, expected_fields: { status: "ok" },     max_latency_ms: 100  },
+    { tc_id: "TC_ERR_001",  method: "POST", path: "/error/500",           expected_status: 500, max_latency_ms: 1000 },
+    { tc_id: "TC_RATE_001", method: "GET",  path: "/rate-limited",        expected_status: 429, max_latency_ms: 500  },
+  ];
+  renderQueue();
+}
+
+function loadChainPreset() {
+  testQueue = [
+    {
+      // Step 1: Login → extract token + uid
+      tc_id: "TC_CHAIN_1", method: "POST", path: "/auth/login",
+      expected_status: 200, max_latency_ms: 500,
+      extract: { token: "token", uid: "user_id" },
+    },
+    {
+      // Step 2: Use extracted uid → /users/usr_001 (template resolved at runtime)
+      tc_id: "TC_CHAIN_2", method: "GET", path: "/users/{{TC_CHAIN_1.uid}}",
+      expected_status: 200, max_latency_ms: 300,
+      depends_on: ["TC_CHAIN_1"],
+      extract: { role: "role" },
+    },
+    {
+      // Step 3: Logout using token (parallel with step 2 conceptually)
+      tc_id: "TC_CHAIN_3", method: "POST", path: "/auth/logout",
+      expected_status: 200, max_latency_ms: 300,
+      depends_on: ["TC_CHAIN_1"],
+    },
+    {
+      // Step 4: Intentional FAIL — expects 200 but /auth/login/invalid returns 401
+      tc_id: "TC_CHAIN_4_FAIL", method: "POST", path: "/auth/login/invalid",
+      expected_status: 200, max_latency_ms: 500,
+    },
+    {
+      // Step 5: BLOCKED because TC_CHAIN_4_FAIL failed
+      tc_id: "TC_CHAIN_5_BLOCKED", method: "GET", path: "/products",
+      expected_status: 200, max_latency_ms: 500,
+      depends_on: ["TC_CHAIN_4_FAIL"],
+    },
+  ];
+  renderQueue();
+}
+
+function clearQueue() { testQueue = []; renderQueue(); }
+
+function renderQueue() {
+  document.getElementById('queue-count').textContent = testQueue.length;
+  const el = document.getElementById('queue-list');
+  if (!testQueue.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:11px">Queue trống — thêm test cases hoặc load preset</div>';
+    return;
+  }
+  el.innerHTML = testQueue.map((tc, i) => {
+    const chainBadge = tc.extract
+      ? `<span title="Extracts: ${esc(Object.keys(tc.extract).join(', '))}" style="font-size:9px;background:#1a1040;color:#a78bfa;padding:1px 5px;border-radius:3px;margin-left:4px;">🔗 extract</span>`
+      : '';
+    const depBadge = tc.depends_on && tc.depends_on.length
+      ? `<span title="Depends on: ${esc(tc.depends_on.join(', '))}" style="font-size:9px;background:#1a1000;color:var(--orange);padding:1px 5px;border-radius:3px;margin-left:4px;">→ ${esc(tc.depends_on[0])}</span>`
+      : '';
+    return `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span style="font-family:monospace;color:var(--blue);font-size:10px;width:120px;flex-shrink:0">${esc(tc.tc_id)}</span>
+      <span style="background:var(--surface);padding:1px 6px;border-radius:3px;font-size:9px;color:var(--orange);font-family:monospace">${esc(tc.method)}</span>
+      <span style="flex:1;font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(tc.path)}</span>
+      ${chainBadge}${depBadge}
+      <span style="font-size:10px;color:var(--muted);flex-shrink:0">${esc(tc.expected_status)}</span>
+      <span style="cursor:pointer;color:var(--red);font-size:11px;flex-shrink:0" onclick="removeTC(${i})">✕</span>
+    </div>`;
+  }).join('');
+}
+
+function removeTC(i) { testQueue.splice(i, 1); renderQueue(); }
+
+async function runMockTests() {
+  if (!testQueue.length) return;
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Running...';
+
+  try {
+    const res = await fetch('/api/mock-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test_cases: testQueue }),
+    });
+    const data = await res.json();
+    renderMockResults(data);
+    refreshStats();
+  } catch (e) {
+    alert('Lỗi chạy test: ' + e.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ Run All';
+}
+
+function renderMockResults(data) {
+  const el = document.getElementById('mock-results');
+  el.style.display = 'block';
+
+  const s = data.summary;
+  document.getElementById('results-summary').innerHTML = `
+    <div class="metric-card"><div class="metric-value" style="color:var(--blue)">${s.total}</div><div class="metric-label">Total</div></div>
+    <div class="metric-card"><div class="metric-value" style="color:var(--green)">${s.passed}</div><div class="metric-label">Passed</div></div>
+    <div class="metric-card"><div class="metric-value" style="color:var(--red)">${s.failed}</div><div class="metric-label">Failed</div></div>
+    <div class="metric-card"><div class="metric-value" style="color:var(--orange)">${s.pass_rate}</div><div class="metric-label">Pass Rate</div></div>
+  `;
+
+  document.getElementById('results-list').innerHTML = data.results.map(r => {
+    const ok      = r.status === 'PASS';
+    const blocked = r.status === 'BLOCKED';
+    const color   = ok ? 'var(--green)' : blocked ? 'var(--orange)' : 'var(--red)';
+    const icon    = ok ? '✅' : blocked ? '⏸️' : '❌';
+    // [SEC-5] esc() tất cả data từ server trước khi đưa vào innerHTML
+    const diffHtml = r.diff
+      ? `<div style="margin-top:6px;font-size:10px;color:${blocked?'var(--orange)':'var(--red)'};padding-left:24px;font-family:monospace">${esc(r.diff).replace(/\n/g,'<br>')}</div>`
+      : '';
+    // Show extracted variables
+    const extracted = r.extracted && Object.keys(r.extracted).length
+      ? `<div style="margin-top:6px;padding:5px 8px;background:#0d1a10;border-left:2px solid #a78bfa;border-radius:0 4px 4px 0;font-size:10px;font-family:monospace;">
+           <span style="color:#a78bfa">🔗 extracted: </span>
+           ${Object.entries(r.extracted).map(([k,v]) =>
+             `<span style="color:#c4b5fd">${esc(k)}</span><span style="color:var(--muted)">=</span><span style="color:#86efac">${esc(String(v).substring(0,40))}</span>`
+           ).join(' &nbsp; ')}
+         </div>`
+      : '';
+    // Chain arrow if depends_on
+    const chainInfo = (r.chained_from && r.chained_from.length)
+      ? `<span style="font-size:9px;color:#a78bfa;margin-left:4px" title="Chained from: ${esc(r.chained_from.join(', '))}">← ${esc(r.chained_from[0])}</span>`
+      : '';
+    return `<div style="padding:8px;background:var(--surface);border-radius:6px;border:1px solid var(--border);${blocked?'opacity:0.7':''}">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span>${icon}</span>
+        <span style="font-family:monospace;font-size:11px;color:var(--blue);flex-shrink:0">${esc(r.tc_id)}</span>
+        ${chainInfo}
+        <span style="flex:1;font-size:11px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.endpoint)}</span>
+        <span style="font-family:monospace;font-size:10px;color:var(--muted);flex-shrink:0">${blocked ? '—' : esc(r.duration_ms)+'ms'}</span>
+        <span style="font-size:10px;font-weight:700;color:${color};flex-shrink:0">${esc(r.status)}</span>
+      </div>
+      ${diffHtml}${extracted}
+    </div>`;
+  }).join('');
+}
+
+// ── Init ──
+document.getElementById('input').addEventListener('input', function() {
+  document.getElementById('send-btn').disabled = !this.value.trim();
+});
+
+// Hiện provider info trên topbar
+async function loadProviderInfo() {
+  try {
+    const data = await fetch('/health').then(r => r.json());
+    const label = document.getElementById('model-label');
+    const icons = { anthropic: '🟣', gemini: '🔵', openai: '🟢' };
+    const icon  = icons[data.provider] || '⚪';
+    label.textContent = `${icon} ${data.provider} · ${data.model} · ${data.key_set ? 'Ready' : '❌ No Key'}`;
+  } catch(e) { /* ignore */ }
+}
+
+// ── Restore chat từ localStorage khi load trang ──
+(function restoreSession() {
+  loadChat();
+  if (state.messages.length === 0) return;
+  const container = document.getElementById('messages');
+  const empty = document.getElementById('empty-state');
+  if (empty) empty.remove();
+  state.messages.forEach(msg => container.appendChild(renderMsg(msg)));
+  container.scrollTop = container.scrollHeight;
+  // restore counts
+  document.getElementById('cnt-req').textContent  = state.counts.req  || 0;
+  document.getElementById('cnt-tc').textContent   = state.counts.tc   || 0;
+  document.getElementById('cnt-bug').textContent  = state.counts.bug  || 0;
+})();
+
+// ── Test Cases ──
+let _allTCs = {};
+let _activeTCFeature = null;
+let _activeTCType = null;
+
+async function loadTestCases() {
+  try {
+    const [grouped, stats] = await Promise.all([
+      fetch('/api/testcases/grouped').then(r => r.json()),
+      fetch('/api/testcases/stats').then(r => r.json()),
+    ]);
+    _allTCs = grouped;
+    renderTCStats(stats);
+    renderTCFeatureFilters(stats);
+    renderTCList(_allTCs);
+    document.getElementById('cnt-tc').textContent = stats.total_active || 0;
+  } catch(e) { console.error('loadTestCases error', e); }
+}
+
+const TC_TYPE_COLORS = {
+  'Happy Path':  'var(--green)',
+  'Negative':    'var(--red)',
+  'Boundary':    'var(--orange)',
+  'Edge Case':   '#7c5cfc',
+  'Performance': 'var(--blue)',
+  'Security':    '#f25555',
+};
+
+const TC_PRIO_COLORS = {
+  'P0-Critical': 'var(--red)',
+  'P1-High':     'var(--orange)',
+  'P2-Medium':   'var(--blue)',
+  'P3-Low':      'var(--muted)',
+};
+
+function renderTCStats(stats) {
+  const el = document.getElementById('tc-stats-bar');
+  const chips = [
+    { label: 'TOTAL ACTIVE', value: stats.total_active, color: 'var(--blue)' },
+    ...Object.entries(stats.by_type || {}).map(([k,v]) => ({ label: k.toUpperCase(), value: v, color: TC_TYPE_COLORS[k] || 'var(--subtle)' })),
+  ];
+  el.innerHTML = chips.map(c => `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;">
+      <div style="font-size:16px;font-weight:700;color:${c.color}">${esc(String(c.value))}</div>
+      <div style="font-size:9px;color:var(--muted);margin-top:2px;">${esc(c.label)}</div>
+    </div>`).join('');
+}
+
+function renderTCFeatureFilters(stats) {
+  const features = Object.keys(stats.by_feature || {});
+  const fEl = document.getElementById('tc-feature-filters');
+  fEl.innerHTML = `<button onclick="filterTCByFeature(null)" style="background:${_activeTCFeature===null?'var(--blue)':'var(--card)'};border:1px solid var(--border);border-radius:12px;color:${_activeTCFeature===null?'#fff':'var(--subtle)'};padding:3px 10px;cursor:pointer;font-size:10px;">Tất cả</button>`
+    + features.map(f => `<button onclick="filterTCByFeature('${esc(f)}')" style="background:${_activeTCFeature===f?'var(--blue)':'var(--card)'};border:1px solid var(--border);border-radius:12px;color:${_activeTCFeature===f?'#fff':'var(--subtle)'};padding:3px 10px;cursor:pointer;font-size:10px;">${esc(f)}</button>`).join('');
+
+  const types = Object.keys(stats.by_type || {});
+  const tEl = document.getElementById('tc-type-filters');
+  tEl.innerHTML = types.map(t => {
+    const col = TC_TYPE_COLORS[t] || 'var(--subtle)';
+    const active = _activeTCType === t;
+    return `<button onclick="filterTCByType('${esc(t)}')" style="background:${active?col:'var(--card)'};border:1px solid ${col};border-radius:12px;color:${active?'#000':col};padding:3px 10px;cursor:pointer;font-size:10px;">${esc(t)}</button>`;
+  }).join('');
+}
+
+function filterTCByFeature(f) {
+  _activeTCFeature = f;
+  renderTCList(_allTCs);
+  fetch('/api/testcases/stats').then(r => r.json()).then(s => renderTCFeatureFilters(s));
+}
+
+function filterTCByType(t) {
+  _activeTCType = _activeTCType === t ? null : t;
+  renderTCList(_allTCs);
+  fetch('/api/testcases/stats').then(r => r.json()).then(s => renderTCFeatureFilters(s));
+}
+
+function filterTCs(q) {
+  if (!q.trim()) { renderTCList(_allTCs); return; }
+  const low = normText(q);
+  const filtered = {};
+  Object.entries(_allTCs).forEach(([feat, tcs]) => {
+    const match = tcs.filter(tc =>
+      normText(tc.tc_id).includes(low) ||
+      normText(tc.title).includes(low) ||
+      normText(tc.steps||'').includes(low)
+    );
+    if (match.length) filtered[feat] = match;
+  });
+  renderTCList(filtered);
+}
+
+function renderTCList(grouped) {
+  const el = document.getElementById('tc-list');
+  let features = Object.keys(grouped);
+  if (_activeTCFeature) features = features.filter(f => f === _activeTCFeature);
+
+  if (!features.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">Chưa có test case nào</div>';
+    return;
+  }
+
+  el.innerHTML = features.map(feat => {
+    let tcs = grouped[feat];
+    if (_activeTCType) tcs = tcs.filter(tc => tc.type === _activeTCType);
+    if (!tcs.length) return '';
+
+    // Sub-group by type within each feature
+    const typeOrder = ['Happy Path', 'Negative', 'Boundary', 'Edge Case', 'Security', 'Performance'];
+    const byType = {};
+    tcs.forEach(tc => { (byType[tc.type] = byType[tc.type] || []).push(tc); });
+    const types = typeOrder.filter(t => byType[t]).concat(Object.keys(byType).filter(t => !typeOrder.includes(t)));
+
+    const tcCard = tc => {
+      const typeColor = TC_TYPE_COLORS[tc.type]  || 'var(--subtle)';
+      const prioColor = TC_PRIO_COLORS[tc.priority] || 'var(--muted)';
+      return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-family:monospace;font-size:11px;color:var(--blue);flex-shrink:0">${esc(tc.tc_id)}</span>
+          <span style="flex:1;font-size:12px;font-weight:500">${esc(tc.title)}</span>
+          <span style="font-size:9px;color:${prioColor};font-weight:600;flex-shrink:0">${esc(tc.priority)}</span>
+          <span style="font-size:9px;color:var(--muted);flex-shrink:0">v${esc(String(tc.version))}</span>
+          <button onclick="showTCHistory('${esc(tc.tc_id)}')" style="background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:2px 7px;cursor:pointer;font-size:9px;flex-shrink:0">History</button>
+          <button onclick="deprecateTCConfirm('${esc(tc.tc_id)}')" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:12px;flex-shrink:0">✕</button>
+        </div>
+        ${tc.steps ? `<div style="margin-top:6px;font-size:11px;color:var(--subtle);white-space:pre-wrap;max-height:60px;overflow:hidden;">${esc(tc.steps)}</div>` : ''}
+        ${tc.linked_reqs ? `<div style="margin-top:4px;font-size:10px;color:var(--muted)">🔗 ${esc(tc.linked_reqs)}</div>` : ''}
+        <div id="tc-hist-${esc(tc.tc_id)}" style="display:none;margin-top:8px;"></div>
+      </div>`;
+    };
+
+    const typeBlocks = types.map(type => {
+      const col = TC_TYPE_COLORS[type] || 'var(--subtle)';
+      const items = byType[type].map(tcCard).join('');
+      return `<div style="margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:6px;padding:4px 6px;margin-bottom:4px;">
+          <span style="font-size:10px;font-weight:600;color:${col};border:1px solid ${col};border-radius:8px;padding:1px 8px;">${esc(type)}</span>
+          <span style="font-size:10px;color:var(--muted)">${byType[type].length} TC</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;padding-left:8px;border-left:2px solid ${col}40;">${items}</div>
+      </div>`;
+    }).join('');
+
+    return `<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;">
+      <div style="padding:10px 14px;font-size:12px;font-weight:700;background:var(--surface);border-bottom:1px solid var(--border);border-radius:8px 8px 0 0;display:flex;align-items:center;gap:8px;">
+        <span>${esc(feat)}</span>
+        <span style="background:var(--card);border-radius:10px;padding:1px 8px;font-size:10px;color:var(--muted)">${tcs.length} TC</span>
+        ${types.map(t => `<span style="font-size:9px;color:${TC_TYPE_COLORS[t]||'var(--muted)'};opacity:.7">${byType[t].length} ${esc(t)}</span>`).join('')}
+      </div>
+      <div style="padding:10px 12px;">${typeBlocks}</div>
+    </div>`;
+  }).join('');
+}
+
+async function showTCHistory(tcId) {
+  const el = document.getElementById(`tc-hist-${tcId}`);
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  const hist = await fetch(`/api/testcases/${encodeURIComponent(tcId)}/history`).then(r => r.json());
+  if (!hist.length) { el.innerHTML = '<div style="font-size:10px;color:var(--muted)">Chưa có version trước</div>'; }
+  else {
+    el.innerHTML = hist.map(h => `<div style="font-size:10px;background:var(--card);border-radius:4px;padding:4px 8px;margin-bottom:4px;">
+      <span style="color:var(--muted)">v${esc(String(h.version))} · ${new Date(h.changed_at+'Z').toLocaleString('vi')}</span>
+      <div style="color:var(--subtle);margin-top:2px">${esc((h.title||'').substring(0,80))}</div>
+    </div>`).join('');
+  }
+  el.style.display = 'block';
+}
+
+async function deprecateTCConfirm(tcId) {
+  if (!confirm(`Ẩn test case ${tcId}?`)) return;
+  await fetch(`/api/testcases/${encodeURIComponent(tcId)}`, { method: 'DELETE' });
+  loadTestCases();
+}
+
+// ── Perf History ──
+function switchHistTab(tab) {
+  ['history','compare','tokens'].forEach(t => {
+    document.getElementById(`htab-${t}`).style.borderBottomColor   = t === tab ? 'var(--blue)' : 'transparent';
+    document.getElementById(`htab-${t}`).style.color               = t === tab ? 'var(--text)'  : 'var(--muted)';
+    document.getElementById(`htab-${t}`).style.fontWeight          = t === tab ? '600' : '400';
+    document.getElementById(`hpanel-${t}`).style.display           = t === tab ? 'flex' : 'none';
+  });
+}
+
+async function loadPerfHistory() {
+  try {
+    const [hist, cmp, tok] = await Promise.all([
+      fetch('/api/perf/history?limit=100').then(r => r.json()),
+      fetch('/api/perf/compare').then(r => r.json()),
+      fetch('/api/perf/token-analysis').then(r => r.json()),
+    ]);
+    renderHistLog(hist);
+    renderHistCompare(cmp);
+    renderHistTokens(tok);
+  } catch(e) { console.error('perf history error', e); }
+}
+
+function renderHistLog(rows) {
+  const el = document.getElementById('hpanel-history');
+  if (!rows.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">Chưa có dữ liệu</div>'; return; }
+  el.innerHTML = rows.map(r => {
+    const ok    = r.success;
+    const color = ok ? 'var(--green)' : 'var(--red)';
+    const prov  = esc(r.provider);
+    const cap   = esc(r.cap);
+    const ts    = new Date(r.ts + 'Z').toLocaleString('vi');
+    return `<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:11px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span style="color:${color};font-weight:700">${ok ? '✅' : '❌'}</span>
+        <span style="background:var(--surface);border-radius:4px;padding:1px 6px;font-family:monospace;color:var(--blue)">${cap}</span>
+        <span style="color:var(--subtle)">${prov} · ${esc(r.model)}</span>
+        <span style="margin-left:auto;color:var(--muted)">${ts}</span>
+      </div>
+      <div style="margin-top:6px;color:var(--subtle);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.prompt_preview || '')}</div>
+      <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap;">
+        <span>⏱ <b>${esc(String(r.duration_ms))}ms</b></span>
+        <span>📥 in: <b style="color:var(--blue)">${esc(String(r.input_tokens))}</b></span>
+        <span>📤 out: <b style="color:var(--green)">${esc(String(r.output_tokens))}</b></span>
+        <span>💰 <b style="color:var(--orange)">$${Number(r.cost).toFixed(5)}</b></span>
+        <span style="color:var(--muted)">sys~${esc(String(r.est_system_tokens))} hist~${esc(String(r.est_history_tokens))} msg~${esc(String(r.est_user_msg_tokens))} tok</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderHistCompare(rows) {
+  const el = document.getElementById('hpanel-compare');
+  if (!rows.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">Chưa có dữ liệu — cần dùng ít nhất 2 provider</div>'; return; }
+  const maxCost = Math.max(...rows.map(r => r.total_cost)) || 1;
+  el.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead>
+          <tr style="background:var(--surface);">
+            <th style="padding:8px 12px;text-align:left;color:var(--subtle)">Provider</th>
+            <th style="padding:8px 12px;text-align:right;color:var(--subtle)">Runs</th>
+            <th style="padding:8px 12px;text-align:right;color:var(--subtle)">Avg Input tok</th>
+            <th style="padding:8px 12px;text-align:right;color:var(--subtle)">Avg Output tok</th>
+            <th style="padding:8px 12px;text-align:right;color:var(--subtle)">Avg Latency</th>
+            <th style="padding:8px 12px;text-align:right;color:var(--subtle)">Avg Cost</th>
+            <th style="padding:8px 12px;text-align:right;color:var(--subtle)">Total Cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((r,i) => `<tr style="border-top:1px solid var(--border);${i%2?'background:#161a28':''}">
+            <td style="padding:8px 12px;font-weight:600;color:var(--text)">${esc(r.provider)} <span style="color:var(--muted);font-weight:400">${esc(r.model)}</span></td>
+            <td style="padding:8px 12px;text-align:right">${esc(String(r.total_runs))}</td>
+            <td style="padding:8px 12px;text-align:right;color:var(--blue)">${esc(String(r.avg_input_tok))}</td>
+            <td style="padding:8px 12px;text-align:right;color:var(--green)">${esc(String(r.avg_output_tok))}</td>
+            <td style="padding:8px 12px;text-align:right">${esc(String(r.avg_latency_ms))}ms</td>
+            <td style="padding:8px 12px;text-align:right;color:var(--orange)">$${Number(r.avg_cost).toFixed(5)}</td>
+            <td style="padding:8px 12px;text-align:right;">
+              <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;">
+                <div style="background:var(--card);border-radius:3px;height:6px;width:60px;overflow:hidden;">
+                  <div style="background:var(--orange);height:100%;width:${(r.total_cost/maxCost*100).toFixed(0)}%;border-radius:3px;"></div>
+                </div>
+                <span style="color:var(--orange)">$${Number(r.total_cost).toFixed(4)}</span>
+              </div>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderHistTokens(data) {
+  const el = document.getElementById('hpanel-tokens');
+  const t  = data.totals || {};
+  if (!t.total_runs) { el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">Chưa có dữ liệu</div>'; return; }
+
+  const pctBar = (pct, color) => `<div style="display:flex;align-items:center;gap:6px;">
+    <div style="flex:1;background:var(--card);border-radius:3px;height:8px;overflow:hidden;">
+      <div style="background:${color};height:100%;width:${Math.min(pct||0,100)}%;border-radius:3px;"></div>
+    </div>
+    <span style="width:36px;text-align:right;color:${color}">${pct||0}%</span>
+  </div>`;
+
+  el.innerHTML = `
+    <!-- Tổng quan -->
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;">
+      <div style="font-size:12px;font-weight:700;margin-bottom:10px;color:var(--text)">📊 Tổng quan token (trung bình / request)</div>
+      <div style="font-size:11px;color:var(--subtle);margin-bottom:4px;">System prompt chiếm bao nhiêu input?</div>
+      ${pctBar(t.pct_system, '#7c5cfc')}
+      <div style="font-size:11px;color:var(--subtle);margin:8px 0 4px;">Conversation history?</div>
+      ${pctBar(t.pct_history, '#4f8ef7')}
+      <div style="font-size:11px;color:var(--subtle);margin:8px 0 4px;">User message mới?</div>
+      ${pctBar(t.pct_user_msg, '#22d67a')}
+      <div style="display:flex;gap:16px;margin-top:12px;font-size:11px;">
+        <span>Tổng runs: <b>${esc(String(t.total_runs))}</b></span>
+        <span>Input tổng: <b style="color:var(--blue)">${esc(String(t.total_input_tok))}</b> tok</span>
+        <span>Output tổng: <b style="color:var(--green)">${esc(String(t.total_output_tok))}</b> tok</span>
+        <span>Chi phí: <b style="color:var(--orange)">$${Number(t.total_cost||0).toFixed(4)}</b></span>
+      </div>
+    </div>
+
+    <!-- By CAP -->
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+      <div style="padding:10px 14px;font-size:12px;font-weight:700;border-bottom:1px solid var(--border)">Token trung bình theo CAP</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead><tr style="background:var(--surface);">
+          <th style="padding:6px 12px;text-align:left;color:var(--subtle)">CAP</th>
+          <th style="padding:6px 12px;text-align:right;color:var(--subtle)">Runs</th>
+          <th style="padding:6px 12px;text-align:right;color:var(--blue)">Avg Input</th>
+          <th style="padding:6px 12px;text-align:right;color:var(--green)">Avg Output</th>
+          <th style="padding:6px 12px;text-align:right;color:#7c5cfc)">~System</th>
+          <th style="padding:6px 12px;text-align:right;color:var(--blue)">~History</th>
+          <th style="padding:6px 12px;text-align:right;color:var(--green)">~UserMsg</th>
+          <th style="padding:6px 12px;text-align:right;color:var(--orange)">Avg Cost</th>
+        </tr></thead>
+        <tbody>
+        ${(data.by_cap||[]).map((r,i) => `<tr style="border-top:1px solid var(--border);${i%2?'background:#161a28':''}">
+          <td style="padding:6px 12px;font-family:monospace;color:var(--blue)">${esc(r.cap)}</td>
+          <td style="padding:6px 12px;text-align:right">${esc(String(r.runs))}</td>
+          <td style="padding:6px 12px;text-align:right;color:var(--blue)">${esc(String(r.avg_input))}</td>
+          <td style="padding:6px 12px;text-align:right;color:var(--green)">${esc(String(r.avg_output))}</td>
+          <td style="padding:6px 12px;text-align:right;color:#7c5cfc">${esc(String(r.avg_est_system))}</td>
+          <td style="padding:6px 12px;text-align:right">${esc(String(r.avg_est_history))}</td>
+          <td style="padding:6px 12px;text-align:right">${esc(String(r.avg_est_user_msg))}</td>
+          <td style="padding:6px 12px;text-align:right;color:var(--orange)">$${Number(r.avg_cost).toFixed(5)}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Top expensive -->
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;">
+      <div style="font-size:12px;font-weight:700;margin-bottom:10px;">🔥 Top 10 request tốn token nhất</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+      ${(data.top_expensive||[]).map(r => `
+        <div style="background:var(--surface);border-radius:6px;padding:8px 12px;font-size:11px;">
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span style="font-family:monospace;color:var(--blue)">${esc(r.cap)}</span>
+            <span style="color:var(--subtle)">${esc(r.provider)}</span>
+            <span style="margin-left:auto;color:var(--orange)">$${Number(r.cost).toFixed(5)}</span>
+          </div>
+          <div style="color:var(--muted);margin:4px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.prompt_preview||'')}</div>
+          <div style="display:flex;gap:10px;color:var(--subtle);">
+            <span>in: <b style="color:var(--blue)">${esc(String(r.input_tokens))}</b></span>
+            <span>out: <b style="color:var(--green)">${esc(String(r.output_tokens))}</b></span>
+            <span>sys~<b style="color:#7c5cfc">${esc(String(r.est_system_tokens))}</b></span>
+            <span>hist~<b>${esc(String(r.est_history_tokens))}</b></span>
+            <span>msg~<b>${esc(String(r.est_user_msg_tokens))}</b></span>
+            <span>turns: <b>${esc(String(r.history_turns))}</b></span>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+// ── Skill Library ──────────────────────────────────────────────────────────
+let _allSkills = [];
+
+async function loadSkills() {
+  try {
+    const data = await fetch('/api/skills').then(r => r.json());
+    _allSkills = data;
+    document.getElementById('cnt-skills').textContent = data.length;
+    renderSkillsList();
+  } catch(e) { console.error('loadSkills error', e); }
+}
+
+function renderSkillsList() {
+  const el = document.getElementById('skills-list');
+  if (!_allSkills.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">Chưa có skill — tạo test queue ở Mock API Runner rồi nhấn "Save Queue as Skill"</div>';
+    return;
+  }
+  const catColors = { Auth:'#22d67a', CRUD:'#4f8ef7', Payment:'#f5a623',
+                      Search:'#7c5cfc', Admin:'#f25555', General:'#8892b0' };
+  el.innerHTML = _allSkills.map(s => {
+    const catColor = catColors[s.category] || '#8892b0';
+    return `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+      <div style="display:flex;align-items:flex-start;gap:10px;">
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:13px;font-weight:700;color:var(--text)">${esc(s.name)}</span>
+            <span style="font-size:9px;background:${catColor}22;color:${catColor};padding:1px 7px;border-radius:3px;font-weight:600">${esc(s.category)}</span>
+            <span style="font-size:10px;color:var(--muted)">${s.test_cases.length} TC</span>
+            <span style="font-size:10px;color:var(--muted)">· dùng ${s.used_count}×</span>
+          </div>
+          ${s.description ? `<div style="font-size:11px;color:var(--subtle);margin-top:4px;">${esc(s.description)}</div>` : ''}
+          <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:8px;">
+            ${s.test_cases.slice(0,5).map(tc => `
+              <span style="font-size:9px;background:var(--surface);color:var(--blue);border:1px solid var(--border);
+                padding:1px 6px;border-radius:3px;font-family:monospace">${esc(tc.method||'GET')} ${esc(tc.path)}</span>
+            `).join('')}
+            ${s.test_cases.length > 5 ? `<span style="font-size:9px;color:var(--muted)">+${s.test_cases.length - 5} more</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0;">
+          <button onclick="loadSkillIntoQueue('${esc(s.id)}')"
+            style="background:var(--blue);border:none;border-radius:6px;color:#fff;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">▶ Load</button>
+          <button onclick="deleteSkill('${esc(s.id)}')"
+            style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--red);padding:5px 12px;cursor:pointer;font-size:11px;">✕ Xóa</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function saveCurrentQueueAsSkill() {
+  if (!testQueue.length) {
+    alert('Queue trống — thêm test cases vào Mock API Runner trước');
+    switchView('mock', document.querySelector('.nav-item[data-view="mock"]'));
+    return;
+  }
+  document.getElementById('skill-form-panel').style.display = 'block';
+  document.getElementById('skill-form-msg').textContent = `Sẽ lưu ${testQueue.length} test cases từ queue hiện tại`;
+}
+
+async function confirmSaveSkill() {
+  const name = document.getElementById('skill-name').value.trim();
+  if (!name) { document.getElementById('skill-form-msg').textContent = '⚠️ Vui lòng nhập tên skill'; return; }
+  const desc     = document.getElementById('skill-desc').value.trim();
+  const category = document.getElementById('skill-category').value;
+  const res = await fetch('/api/skills', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, test_cases: testQueue, description: desc, category }),
+  });
+  const data = await res.json();
+  if (res.ok) {
+    document.getElementById('skill-form-msg').innerHTML =
+      `<span style="color:var(--green)">✅ Đã ${data.action === 'created' ? 'tạo' : 'cập nhật'} skill "${esc(name)}" (${data.tc_count} TC)</span>`;
+    document.getElementById('skill-name').value = '';
+    document.getElementById('skill-desc').value = '';
+    setTimeout(() => { document.getElementById('skill-form-panel').style.display = 'none'; }, 1500);
+    loadSkills();
+  } else {
+    document.getElementById('skill-form-msg').innerHTML =
+      `<span style="color:var(--red)">❌ Lỗi: ${esc(data.detail)}</span>`;
+  }
+}
+
+async function loadSkillIntoQueue(skillId) {
+  const data = await fetch(`/api/skills/${encodeURIComponent(skillId)}`).then(r => r.json());
+  if (!data || !data.test_cases) { alert('Không tải được skill'); return; }
+  testQueue = data.test_cases;
+  renderQueue();
+  switchView('mock', document.querySelector('.nav-item[data-view="mock"]'));
+}
+
+async function deleteSkill(skillId) {
+  if (!confirm('Xóa skill này?')) return;
+  await fetch(`/api/skills/${encodeURIComponent(skillId)}`, { method: 'DELETE' });
+  loadSkills();
+}
+
+// ── Cron Jobs ───────────────────────────────────────────────────────────────
+let _allCrons = [];
+
+async function loadSkillsForCronSelect() {
+  try {
+    const data = await fetch('/api/skills').then(r => r.json());
+    const sel = document.getElementById('cron-skill-select');
+    sel.innerHTML = '<option value="">Chọn skill...</option>' +
+      data.map(s => `<option value="${esc(s.id)}">${esc(s.name)} (${s.test_cases.length} TC)</option>`).join('');
+  } catch(e) {}
+}
+
+async function loadCrons() {
+  try {
+    const data = await fetch('/api/crons').then(r => r.json());
+    _allCrons = data;
+    document.getElementById('cnt-crons').textContent = data.length;
+    renderCronsList();
+  } catch(e) { console.error('loadCrons error', e); }
+}
+
+function renderCronsList() {
+  const el = document.getElementById('crons-list');
+  if (!_allCrons.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;margin-top:40px;">Chưa có lịch — tạo skill trước rồi lập lịch ở đây</div>';
+    return;
+  }
+  el.innerHTML = _allCrons.map(c => {
+    const statusColor = c.last_status === 'PASS' ? 'var(--green)' : c.last_status === 'FAIL' || c.last_status === 'ERROR' ? 'var(--red)' : 'var(--muted)';
+    return `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+      <div style="display:flex;align-items:flex-start;gap:10px;">
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:13px;font-weight:700;color:var(--text)">${esc(c.name)}</span>
+            <span style="font-size:9px;background:#1f1500;color:var(--orange);padding:1px 7px;border-radius:3px;font-family:monospace">${esc(c.cron_expr)}</span>
+            <span style="font-size:10px;color:var(--muted)">(${esc(c.schedule)})</span>
+            ${c.enabled
+              ? '<span style="font-size:9px;color:var(--green);font-weight:700">● ON</span>'
+              : '<span style="font-size:9px;color:var(--muted)">○ OFF</span>'}
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+            Đã chạy: ${esc(String(c.run_count))}×
+            ${c.last_run_at ? `· Lần cuối: ${new Date(c.last_run_at).toLocaleString('vi')}` : '· Chưa chạy'}
+            ${c.last_status ? `<span style="color:${statusColor};font-weight:600;margin-left:6px">${esc(c.last_status)}</span>` : ''}
+          </div>
+          ${c.last_summary ? `<div style="font-size:10px;color:var(--subtle);margin-top:3px;">${esc(c.last_summary)}</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0;">
+          <button onclick="runCronNow('${esc(c.id)}', this)"
+            style="background:var(--green);border:none;border-radius:6px;color:#000;padding:5px 10px;cursor:pointer;font-size:11px;font-weight:600;">▶ Run</button>
+          <button onclick="toggleCron('${esc(c.id)}', ${c.enabled ? 0 : 1})"
+            style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--subtle);padding:5px 10px;cursor:pointer;font-size:11px;">${c.enabled ? '⏸ Tắt' : '▶ Bật'}</button>
+          <button onclick="showCronLogs('${esc(c.id)}')"
+            style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--blue);padding:5px 10px;cursor:pointer;font-size:11px;">📋 Logs</button>
+          <button onclick="deleteCron('${esc(c.id)}')"
+            style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--red);padding:5px 10px;cursor:pointer;font-size:11px;">✕</button>
+        </div>
+      </div>
+      <div id="cron-logs-${esc(c.id)}" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:8px;"></div>
+    </div>`;
+  }).join('');
+}
+
+async function saveCron() {
+  const name     = document.getElementById('cron-name').value.trim();
+  const skillId  = document.getElementById('cron-skill-select').value;
+  const schedule = document.getElementById('cron-schedule').value.trim();
+  const msg      = document.getElementById('cron-form-msg');
+  if (!name)     { msg.textContent = '⚠️ Vui lòng nhập tên'; return; }
+  if (!skillId)  { msg.textContent = '⚠️ Chọn skill để chạy'; return; }
+  if (!schedule) { msg.textContent = '⚠️ Nhập lịch chạy'; return; }
+  const res = await fetch('/api/crons', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, skill_id: skillId, schedule }),
+  });
+  const data = await res.json();
+  if (res.ok) {
+    msg.innerHTML = `<span style="color:var(--green)">✅ Đã tạo lịch "${esc(name)}" — cron: ${esc(data.cron_expr)}</span>`;
+    document.getElementById('cron-name').value = '';
+    document.getElementById('cron-schedule').value = '';
+    loadCrons();
+  } else {
+    msg.innerHTML = `<span style="color:var(--red)">❌ Lỗi: ${esc(data.detail)}</span>`;
+  }
+}
+
+async function toggleCron(cronId, enabled) {
+  await fetch(`/api/crons/${encodeURIComponent(cronId)}/toggle`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: !!enabled }),
+  });
+  loadCrons();
+}
+
+async function runCronNow(cronId, btn) {
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  try {
+    const res  = await fetch(`/api/crons/${encodeURIComponent(cronId)}/run`, { method: 'POST' });
+    const data = await res.json();
+    btn.textContent = res.ok ? '✅' : '❌';
+  } catch(e) { btn.textContent = '❌'; }
+  setTimeout(() => { btn.disabled = false; btn.textContent = '▶ Run'; loadCrons(); }, 1800);
+}
+
+async function showCronLogs(cronId) {
+  const el = document.getElementById(`cron-logs-${cronId}`);
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  const logs = await fetch(`/api/crons/${encodeURIComponent(cronId)}/logs`).then(r => r.json());
+  if (!logs.length) {
+    el.innerHTML = '<div style="font-size:10px;color:var(--muted);">Chưa có log nào</div>';
+  } else {
+    el.innerHTML = `<div style="font-size:11px;font-weight:600;margin-bottom:6px;color:var(--subtle)">📋 Run History (${logs.length})</div>` +
+      logs.map(l => {
+        const color = l.status === 'PASS' ? 'var(--green)' : 'var(--red)';
+        return `<div style="display:flex;gap:8px;font-size:10px;padding:4px 0;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
+          <span style="color:${color};font-weight:700;min-width:40px">${esc(l.status)}</span>
+          <span style="color:var(--muted)">${new Date(l.ran_at).toLocaleString('vi')}</span>
+          <span style="color:var(--subtle);flex:1">${esc(l.summary)}</span>
+          <span style="color:var(--muted);font-family:monospace;flex-shrink:0">${esc(String(l.duration_ms))}ms</span>
+        </div>`;
+      }).join('');
+  }
+  el.style.display = 'block';
+}
+
+async function deleteCron(cronId) {
+  if (!confirm('Xóa lịch này? Lịch sử chạy cũng sẽ bị xóa.')) return;
+  await fetch(`/api/crons/${encodeURIComponent(cronId)}`, { method: 'DELETE' });
+  loadCrons();
+}
+
+loadProviderInfo();
+setInterval(refreshStats, 10000);
+</script>
+</body>
+</html>

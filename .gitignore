@@ -1,0 +1,30 @@
+# Environment — KHÔNG commit
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Database
+*.db
+*.sqlite3
+
+# Logs & exports
+*.log
+agent_diagnostics.log
+performance_report.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+.greennode.json
+.agentbase/
