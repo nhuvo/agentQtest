@@ -280,6 +280,8 @@
           style="background:var(--card);border:1px solid #a78bfa;border-radius:6px;color:#a78bfa;padding:5px 10px;cursor:pointer;font-size:10px;flex-shrink:0;">🗂 Groups</button>
         <button onclick="document.getElementById('req-diff-panel').style.display='flex'"
           style="background:var(--card);border:1px solid var(--orange);border-radius:6px;color:var(--orange);padding:5px 10px;cursor:pointer;font-size:10px;flex-shrink:0;">⚡ Diff</button>
+        <button onclick="toggleCoveragePanel()"
+          style="background:var(--card);border:1px solid var(--green);border-radius:6px;color:var(--green);padding:5px 10px;cursor:pointer;font-size:10px;flex-shrink:0;">📊 Coverage</button>
       </div>
 
       <!-- Feature Groups management panel -->
@@ -313,6 +315,26 @@
       </div>
 
       <!-- Bulk action bar (requirements) -->
+      <!-- Coverage Panel -->
+      <div id="coverage-panel" style="display:none;flex-direction:column;gap:0;border-bottom:1px solid var(--border);flex-shrink:0;max-height:380px;overflow-y:auto;">
+        <!-- Summary bar -->
+        <div style="display:flex;align-items:center;gap:16px;padding:10px 20px;background:#0a1a0a;flex-shrink:0;">
+          <span style="font-size:12px;font-weight:700;color:var(--green)">📊 Coverage Analysis</span>
+          <span id="cov-pct-badge" style="font-size:18px;font-weight:800;color:var(--green)">—</span>
+          <span id="cov-summary" style="font-size:11px;color:var(--subtle)"></span>
+          <button onclick="loadCoverageAI()" id="cov-ai-btn"
+            style="margin-left:auto;background:#0d1829;border:1px solid var(--blue);border-radius:6px;color:var(--blue);padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">
+            🤖 AI Suggest gaps
+          </button>
+          <button onclick="toggleCoveragePanel()"
+            style="background:none;border:none;color:var(--subtle);font-size:16px;cursor:pointer;padding:0 4px;">×</button>
+        </div>
+        <!-- AI suggestion result -->
+        <div id="cov-ai-result" style="display:none;padding:10px 20px;background:#0d1a0d;border-bottom:1px solid var(--border);font-size:11px;color:var(--subtle);white-space:pre-wrap;"></div>
+        <!-- Per-req table -->
+        <div id="cov-list" style="padding:8px 20px;display:flex;flex-direction:column;gap:4px;"></div>
+      </div>
+
       <div id="req-bulk-bar" style="display:none;padding:8px 20px;background:#0d1829;border-bottom:1px solid var(--blue);flex-shrink:0;align-items:center;gap:10px;">
         <span id="req-bulk-count" style="font-size:11px;color:var(--blue);font-weight:600;"></span>
         <button onclick="bulkDeleteReqs()" style="background:var(--red);border:none;border-radius:5px;color:#fff;padding:4px 12px;cursor:pointer;font-size:11px;font-weight:600;">🗑 Xóa đã chọn</button>
@@ -875,13 +897,16 @@ async function loadRequirements() {
     _allReqs = grouped;
     _featureGroups = groups;
     renderReqStats(stats);
-    // Merge: tất cả user-defined groups trước, rồi groups có reqs nhưng chưa được define
     const userGroupNames = groups.map(g => g.name);
     const reqGroupNames  = Object.keys(grouped).filter(k => !userGroupNames.includes(k));
     _allFeatures = [...userGroupNames, ...reqGroupNames];
     renderFeatureFilters(_allFeatures);
+    // Load run summaries in background (không block render)
+    _loadRunSummaries().then(() => renderReqList(grouped, _activeFeature));
     renderReqList(grouped, _activeFeature);
     document.getElementById('cnt-req').textContent = stats.total_active || 0;
+    // Refresh coverage panel nếu đang mở
+    if (_coverageOpen) loadCoverage();
   } catch(e) {
     document.getElementById('req-list').innerHTML =
       `<div style="color:var(--red);font-size:12px">Lỗi tải requirements: ${esc(e.message)}</div>`;
@@ -991,6 +1016,7 @@ function renderReqList(grouped, filterFeature, search='') {
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
               <span style="font-size:9px;color:var(--muted)">v${esc(r.version)}</span>
+              ${_runBadge(r.req_id)}
               <div style="display:flex;gap:4px">
                 <button onclick="generateTCsFromReq('${esc(r.req_id)}')"
                   style="font-size:9px;background:#0d1829;border:1px solid var(--blue);border-radius:3px;color:var(--blue);padding:2px 6px;cursor:pointer"
@@ -1284,6 +1310,21 @@ function renderMsg(msg) {
     }
     if (msg.meta.tokens > 0) {
       meta.innerHTML += `<span class="meta-tag">${msg.meta.tokens} tok</span>`;
+    }
+    // Feedback thumbs (chỉ cho agent messages)
+    if (msg.role === 'agent' && msg.cap && msg.cap !== 'CHAT') {
+      const fbId = `fb-${msg.meta.ts}`;
+      meta.innerHTML += `
+        <span id="${fbId}" style="margin-left:8px;display:inline-flex;gap:4px">
+          <button onclick="sendFeedback('${esc(msg.cap)}',1,'${fbId}')"
+            style="background:none;border:1px solid var(--border);border-radius:4px;
+                   color:var(--subtle);padding:1px 6px;cursor:pointer;font-size:11px"
+            title="Hữu ích">👍</button>
+          <button onclick="sendFeedback('${esc(msg.cap)}',-1,'${fbId}')"
+            style="background:none;border:1px solid var(--border);border-radius:4px;
+                   color:var(--subtle);padding:1px 6px;cursor:pointer;font-size:11px"
+            title="Không hữu ích">👎</button>
+        </span>`;
     }
     div.appendChild(meta);
   }
@@ -2274,6 +2315,147 @@ async function deleteCron(cronId) {
   loadCrons();
 }
 
+// ── Test Run History & Coverage ────────────────────────────────────────────
+let _runSummaries = {};   // {req_id: {total,passed,failed,blocked,pass_rate,last_run}}
+
+async function _loadRunSummaries() {
+  try {
+    const data = await fetch('/api/analysis/coverage').then(r => r.json());
+    _runSummaries = {};
+    (data.items || []).forEach(item => {
+      _runSummaries[item.req_id] = {
+        total:      item.run_total,
+        passed:     item.run_passed,
+        pass_rate:  item.run_rate,
+        tc_count:   item.tc_count,
+        last_run:   item.last_run,
+      };
+    });
+  } catch(e) { /* ignore — server might not have run data yet */ }
+}
+
+function _runBadge(reqId) {
+  const s = _runSummaries[reqId];
+  if (!s || !s.total) return '';
+  const rate = s.pass_rate;
+  const col  = rate === 100 ? 'var(--green)' : rate >= 50 ? 'var(--orange)' : 'var(--red)';
+  return `<button onclick="showReqRunHistory('${esc(reqId)}')"
+    style="font-size:9px;background:transparent;border:1px solid ${col};border-radius:3px;
+           color:${col};padding:2px 6px;cursor:pointer;font-weight:600"
+    title="Chạy ${s.total} lần — Pass rate ${rate}%">
+    ${rate === 100 ? '✅' : rate >= 50 ? '⚠️' : '❌'} ${rate}% (${s.total})
+  </button>`;
+}
+
+async function showReqRunHistory(reqId) {
+  const modal = document.getElementById('run-history-modal');
+  document.getElementById('rh-req-label').textContent = reqId;
+  document.getElementById('rh-body').innerHTML =
+    '<div style="text-align:center;padding:32px;color:var(--subtle)">Đang tải...</div>';
+  modal.style.display = 'flex';
+  try {
+    const data = await fetch(`/api/requirements/${encodeURIComponent(reqId)}/run-history`).then(r => r.json());
+    const s = data.summary || {};
+    const rows = (data.history || []).map(h => {
+      const col = h.status === 'PASS' ? 'var(--green)' : h.status === 'FAIL' ? 'var(--red)' : 'var(--orange)';
+      const ts  = h.run_at ? new Date(h.run_at + 'Z').toLocaleString('vi') : '—';
+      return `<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px;align-items:center">
+        <span style="color:${col};font-weight:700;width:60px;flex-shrink:0">${esc(h.status)}</span>
+        <span style="font-family:monospace;color:var(--blue);width:120px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis">${esc(h.tc_id)}</span>
+        <span style="flex:1;color:var(--subtle);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.endpoint || '')}</span>
+        <span style="color:var(--muted);flex-shrink:0">${h.duration_ms || 0}ms</span>
+        <span style="color:var(--muted);flex-shrink:0;font-size:10px">${ts}</span>
+      </div>`;
+    }).join('') || '<div style="color:var(--muted);text-align:center;padding:24px">Chưa có lịch sử chạy</div>';
+
+    const pct = s.pass_rate != null ? s.pass_rate : '—';
+    const pCol = s.pass_rate === 100 ? 'var(--green)' : s.pass_rate >= 50 ? 'var(--orange)' : 'var(--red)';
+    document.getElementById('rh-body').innerHTML = `
+      <div style="display:flex;gap:16px;padding:10px 0 14px;border-bottom:1px solid var(--border);margin-bottom:10px;flex-wrap:wrap">
+        <div style="text-align:center"><div style="font-size:20px;font-weight:800;color:${pCol}">${pct}%</div><div style="font-size:10px;color:var(--muted)">Pass rate</div></div>
+        <div style="text-align:center"><div style="font-size:18px;font-weight:700;color:var(--text)">${s.total||0}</div><div style="font-size:10px;color:var(--muted)">Total runs</div></div>
+        <div style="text-align:center"><div style="font-size:18px;font-weight:700;color:var(--green)">${s.passed||0}</div><div style="font-size:10px;color:var(--muted)">Passed</div></div>
+        <div style="text-align:center"><div style="font-size:18px;font-weight:700;color:var(--red)">${s.failed||0}</div><div style="font-size:10px;color:var(--muted)">Failed</div></div>
+      </div>
+      ${rows}`;
+  } catch(e) {
+    document.getElementById('rh-body').innerHTML = `<div style="color:var(--red);text-align:center;padding:24px">${esc(e.message)}</div>`;
+  }
+}
+
+// ── Coverage Panel ─────────────────────────────────────────────────────────
+let _coverageOpen = false;
+
+async function toggleCoveragePanel() {
+  const panel = document.getElementById('coverage-panel');
+  _coverageOpen = !_coverageOpen;
+  panel.style.display = _coverageOpen ? 'flex' : 'none';
+  if (_coverageOpen) await loadCoverage();
+}
+
+async function loadCoverage() {
+  document.getElementById('cov-list').innerHTML =
+    '<div style="color:var(--subtle);font-size:11px;padding:8px 0">Đang phân tích...</div>';
+  try {
+    const data = await fetch('/api/analysis/coverage').then(r => r.json());
+    document.getElementById('cov-pct-badge').textContent = `${data.coverage_pct}%`;
+    document.getElementById('cov-summary').textContent =
+      `${data.covered}/${data.total_reqs} requirements có test cases · ${data.uncovered} chưa có`;
+
+    const items = (data.items || []);
+    const html = items.map(item => {
+      const hasTc  = item.tc_count > 0;
+      const ran    = item.run_total > 0;
+      const rPct   = item.run_rate != null ? item.run_rate : null;
+      const tcCol  = hasTc ? 'var(--green)' : 'var(--red)';
+      const runBit = ran
+        ? `<span style="font-size:9px;color:${rPct===100?'var(--green)':rPct>=50?'var(--orange)':'var(--red)'}">${rPct}% pass (${item.run_total})</span>`
+        : `<span style="font-size:9px;color:var(--muted)">chưa chạy</span>`;
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)20;font-size:11px">
+        <span style="font-family:monospace;color:var(--blue);width:90px;flex-shrink:0;font-size:10px">${esc(item.req_id)}</span>
+        <span style="flex:1;color:var(--subtle);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.description)}</span>
+        <span style="color:${tcCol};font-weight:600;flex-shrink:0;font-size:10px">${item.tc_count} TC</span>
+        ${runBit}
+        ${!hasTc ? `<button onclick="generateTCsFromReq('${esc(item.req_id)}')"
+          style="font-size:9px;background:#0d1829;border:1px solid var(--blue);border-radius:3px;color:var(--blue);padding:1px 6px;cursor:pointer">🤖 Gen</button>` : ''}
+      </div>`;
+    }).join('');
+    document.getElementById('cov-list').innerHTML = html ||
+      '<div style="color:var(--muted);font-size:11px;padding:8px 0">Chưa có requirements</div>';
+  } catch(e) {
+    document.getElementById('cov-list').innerHTML = `<div style="color:var(--red);font-size:11px">${esc(e.message)}</div>`;
+  }
+}
+
+async function loadCoverageAI() {
+  const btn = document.getElementById('cov-ai-btn');
+  const res = document.getElementById('cov-ai-result');
+  btn.disabled = true; btn.textContent = '🤖 Đang phân tích...';
+  res.style.display = 'none';
+  try {
+    const data = await fetch('/api/analysis/coverage/suggest', { method: 'POST' }).then(r => r.json());
+    res.style.display = 'block';
+    res.textContent = data.suggestions || data.message;
+  } catch(e) {
+    res.style.display = 'block'; res.textContent = '❌ ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '🤖 AI Suggest gaps';
+  }
+}
+
+// ── AI Feedback ────────────────────────────────────────────────────────────
+async function sendFeedback(cap, rating, containerId) {
+  try {
+    await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cap, rating }),
+    });
+    const el = document.getElementById(containerId);
+    if (el) el.innerHTML = `<span style="font-size:10px;color:var(--muted)">${rating === 1 ? '👍 Cảm ơn!' : '👎 Ghi nhận'}</span>`;
+  } catch(e) { /* silent fail */ }
+}
+
 // ── Export ─────────────────────────────────────────────────────────────────
 function exportFile(type, fmt) {
   const a = document.createElement('a');
@@ -2495,6 +2677,23 @@ async function saveGenTCsToLibrary() {
   if (document.querySelector('.nav-item.active')?.dataset.view === 'tc') loadTestCases();
 }
 </script>
+
+<!-- Modal: Requirement Run History -->
+<div id="run-history-modal" onclick="if(event.target===this)this.style.display='none'"
+  style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.65);
+         align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
+    width:min(680px,94vw);max-height:78vh;display:flex;flex-direction:column;overflow:hidden;
+    box-shadow:0 8px 40px rgba(0,0,0,.5)">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0">
+      <span style="font-size:13px;font-weight:700;color:var(--text)">📋 Test Run History</span>
+      <span id="rh-req-label" style="font-size:10px;color:var(--blue);background:#0d1829;padding:2px 8px;border-radius:4px;font-family:monospace"></span>
+      <button onclick="document.getElementById('run-history-modal').style.display='none'"
+        style="margin-left:auto;background:none;border:none;color:var(--subtle);font-size:20px;line-height:1;cursor:pointer">×</button>
+    </div>
+    <div id="rh-body" style="flex:1;overflow-y:auto;padding:14px 18px;min-height:80px"></div>
+  </div>
+</div>
 
 <!-- Modal: Auto-generate Test Cases -->
 <div id="gen-tc-modal" onclick="if(event.target===this)closeGenModal()"

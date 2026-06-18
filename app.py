@@ -44,6 +44,10 @@ from cron_store import (
     save_cron, get_all_crons, get_cron, toggle_cron as _toggle_cron_db, delete_cron,
     log_cron_run, get_cron_logs, init_cron_db,
 )
+from run_store import (
+    log_tc_run, get_req_run_history, get_req_run_summary,
+    get_all_req_summaries, save_feedback, get_feedback_stats, init_run_store,
+)
 
 logger = logging.getLogger("qa_copilot")
 
@@ -101,10 +105,8 @@ def _reload_scheduler():
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    init_db()
-    init_cron_db()
-    _reload_scheduler()
-    _scheduler.start()
+    init_db(); init_cron_db(); init_run_store()
+    _reload_scheduler(); _scheduler.start()
     yield
     _scheduler.shutdown(wait=False)
 
@@ -863,8 +865,13 @@ async def chat(req: ChatRequest, _auth=Depends(require_api_key), _rate=Depends(c
 @app.post("/api/mock-test")
 async def run_mock_tests(req: MockRunRequest, _auth=Depends(require_api_key), _rate=Depends(check_rate_limit)):
     """Run mock API test cases via mock_api_responses module."""
+    from testcase_store import get_all_testcases
     test_cases = [tc.model_dump() for tc in req.test_cases]
     report = run_batch(test_cases)
+
+    # Build lookup {tc_id -> tc} for req linkage
+    db_tcs = {tc["tc_id"]: tc for tc in get_all_testcases()}
+    log_tc_run(report["results"], db_tcs)
 
     # Record each test run in performance monitor
     for r in report["results"]:
@@ -1638,6 +1645,141 @@ async def api_generate_testcases(
         raise HTTPException(status_code=500, detail=f"AI trả về JSON không hợp lệ: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Test run history
+# ---------------------------------------------------------------------------
+
+@app.get("/api/requirements/{req_id}/run-history")
+async def req_run_history(req_id: str, limit: int = Query(20, ge=1, le=100),
+                          _auth=Depends(require_api_key)):
+    history = get_req_run_history(req_id, limit=limit)
+    summary = get_req_run_summary(req_id)
+    return {"history": history, "summary": summary}
+
+
+# ---------------------------------------------------------------------------
+# Coverage analysis
+# ---------------------------------------------------------------------------
+
+@app.get("/api/analysis/coverage")
+async def analysis_coverage(_auth=Depends(require_api_key)):
+    """
+    Phân tích coverage: với mỗi requirement, có bao nhiêu TC liên kết,
+    và lịch sử chạy gần nhất.
+    """
+    from testcase_store import get_all_testcases
+    reqs = get_all_requirements()
+    tcs  = get_all_testcases()
+    run_summaries = get_all_req_summaries()
+
+    # Build {req_id -> list of tc_ids}
+    req_to_tcs: Dict[str, List[str]] = {}
+    for tc in tcs:
+        raw = tc.get("linked_reqs") or ""
+        for rid in [x.strip() for x in raw.split(",") if x.strip()]:
+            req_to_tcs.setdefault(rid, []).append(tc["tc_id"])
+
+    items = []
+    covered = uncovered = 0
+    for r in reqs:
+        rid = r["req_id"]
+        linked = req_to_tcs.get(rid, [])
+        run = run_summaries.get(rid, {})
+        has_tc = len(linked) > 0
+        if has_tc:
+            covered += 1
+        else:
+            uncovered += 1
+        items.append({
+            "req_id":     rid,
+            "feature":    r.get("feature",""),
+            "description": r.get("description","")[:120],
+            "tc_count":   len(linked),
+            "tc_ids":     linked,
+            "run_total":  run.get("total", 0),
+            "run_passed": run.get("passed", 0),
+            "run_rate":   run.get("pass_rate"),
+            "last_run":   run.get("last_run"),
+        })
+
+    total = len(reqs)
+    return {
+        "total_reqs": total,
+        "covered": covered,
+        "uncovered": uncovered,
+        "coverage_pct": round(covered / total * 100) if total else 0,
+        "items": items,
+    }
+
+
+@app.post("/api/analysis/coverage/suggest")
+async def coverage_suggest(
+    _auth=Depends(require_api_key),
+    _rate=Depends(check_rate_limit),
+):
+    """AI gợi ý test cases cho các requirements chưa có TC."""
+    from testcase_store import get_all_testcases
+    reqs = get_all_requirements()
+    tcs  = get_all_testcases()
+    req_to_tcs: Dict[str, List[str]] = {}
+    for tc in tcs:
+        raw = tc.get("linked_reqs") or ""
+        for rid in [x.strip() for x in raw.split(",") if x.strip()]:
+            req_to_tcs.setdefault(rid, []).append(tc["tc_id"])
+
+    uncovered = [r for r in reqs if not req_to_tcs.get(r["req_id"])][:10]
+    if not uncovered:
+        return {"message": "Tất cả requirements đã có test case!", "suggestions": []}
+
+    req_list = "\n".join(
+        f"- {r['req_id']}: {r['description'][:100]}" for r in uncovered
+    )
+    prompt = (
+        f"These requirements have NO test cases yet. For each, suggest 2 quick test case titles "
+        f"(one happy-path, one negative). Be concise. Format:\n"
+        f"REQ_ID | Happy: <title> | Negative: <title>\n\n{req_list}"
+    )
+    ai_resp = call_ai(
+        messages=[{"role": "user", "content": prompt}],
+        system="You are a QA expert. Output only the formatted list, no extra text.",
+    )
+    return {"suggestions": ai_resp.text, "uncovered_count": len(uncovered)}
+
+
+# ---------------------------------------------------------------------------
+# AI Feedback
+# ---------------------------------------------------------------------------
+
+class FeedbackRequest(BaseModel):
+    cap: str
+    rating: int  # 1 = helpful, -1 = not helpful
+
+    @field_validator("rating")
+    @classmethod
+    def validate_rating(cls, v):
+        if v not in (1, -1):
+            raise ValueError("rating phải là 1 hoặc -1")
+        return v
+
+    @field_validator("cap")
+    @classmethod
+    def validate_cap(cls, v):
+        if len(v) > 20:
+            raise ValueError("cap quá dài")
+        return v
+
+
+@app.post("/api/feedback")
+async def post_feedback(req: FeedbackRequest, _auth=Depends(require_api_key)):
+    save_feedback(req.cap, req.rating)
+    return {"saved": True}
+
+
+@app.get("/api/feedback/stats")
+async def feedback_stats(_auth=Depends(require_api_key)):
+    return get_feedback_stats()
 
 
 # ---------------------------------------------------------------------------

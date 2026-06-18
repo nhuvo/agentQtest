@@ -330,6 +330,21 @@ Dữ liệu lưu trong `qa_copilot.db` (SQLite, không cần cài thêm phần m
 | `GET` | `/api/crons/{id}/logs` | Lịch sử chạy (`?limit=20`) | ✅ |
 | `POST` | `/api/crons/{id}/run` | Chạy ngay lập tức (không chờ lịch) | ✅ |
 
+### Test Run History & Coverage
+
+| Method | Endpoint | Mô tả | Auth |
+|---|---|---|---|
+| `GET` | `/api/requirements/{id}/run-history` | Lịch sử chạy test + summary (pass rate, total) cho 1 requirement | ✅ |
+| `GET` | `/api/analysis/coverage` | Coverage matrix: mỗi req có bao nhiêu TC, pass rate | ✅ |
+| `POST` | `/api/analysis/coverage/suggest` | AI gợi ý test cases cho requirements chưa có TC | ✅ |
+
+### AI Feedback
+
+| Method | Endpoint | Mô tả | Auth |
+|---|---|---|---|
+| `POST` | `/api/feedback` | Lưu rating 👍/👎 cho AI response (`cap`, `rating: 1\|-1`) | ✅ |
+| `GET` | `/api/feedback/stats` | Thống kê helpful rate theo CAP | ✅ |
+
 ### AI Utilities
 
 | Method | Endpoint | Mô tả | Auth |
